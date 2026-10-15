@@ -9,8 +9,17 @@
 - 修改：统一决策及形成过程、独立优化记录、模块范围清单、Git/Codex Hook、检查脚本、CI 和独立监督审查。
 - 目的：防止旧决定复活、跨模块扩展、未验收提交、把测试音频当真实效果。
 - 验证：`python3 -m unittest discover -s tests -v` 的 11 项行为测试通过（含真实临时 Git 仓库提交/推送 Hook、错误路径及 Codex 事件反馈）。最终独立审查见 `docs/reviews/M00.json`。
-- 限制：不代表 Web 已实现或武汉话效果已通过；GitHub 发布需真实登录与远端核实；Codex Hook 自动触发需用户信任。
+- 限制：不代表 Web 已实现或武汉话效果已通过。建立基线时 GitHub 发布及 Codex Hook 信任尚待完成，后续结果见 O002。
 - 决策：D006、D008、D009。
+
+## O002｜2026-10-15｜M00 发布验收
+
+- 本次无额外功能或性能优化，仅完成 D009 的仓库发布和记录更新。
+- 问题：首次 GitHub 设备登录码过期，本机尚未获得凭据；重新登录后确认账号为 dachenx。
+- 结果：公开仓库创建成功，首次提交 `117cc110e24b606b7c6addf5f8dcf83aca5fde9b` 推送到 main，远端 SHA 一致，工作区干净。
+- 验证：正式 pre-push 运行 11 项测试全部通过；[GitHub Actions 首次检查](https://github.com/dachenx/voice-style-web/actions/runs/38686137563) 为 completed / success。
+- Hook：用户确认已完成 Codex 项目 Hook 信任；Git Hook 已实际执行。本次不修改任何 Hook 定义。
+- 限制：本记录仅验证 M00 治理模块；尚无业务 Web、真实语音模型或声音验收结果。
 
 ## 后续格式
 

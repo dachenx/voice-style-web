@@ -2,7 +2,17 @@
   "module": "M00",
   "reviewer": "配音 Web 方案团队讨论中的独立 Plan Guardian 子代理",
   "verdict": "PASS",
-  "digest": "d7946ceddfd20f34fb8ce5e719732a82f667984b7879d9800f3d8a4144dd98ce",
+  "digest": "3848bf3223d690d8aedfc7790795887b7638950d239d575026992fff1e3839a0",
+  "previous_review_digest": "d7946ceddfd20f34fb8ce5e719732a82f667984b7879d9800f3d8a4144dd98ce",
+  "publication_review": {
+    "verdict": "PASS",
+    "scope": "仅复核 DECISIONS.md 与 OPTIMIZATIONS.md 的发布记录更新，未修改代码/Hook/测试，未进入 M01。",
+    "evidence": [
+      "独立 Plan Guardian 核实公开仓库 main 指向首次提交 117cc110e24b606b7c6addf5f8dcf83aca5fde9b。",
+      "GitHub Actions run 38686137563 对同一提交为 completed / success。",
+      "监督员重算 digest 与当前内容一致；纯文档复核未重复运行全量测试，正式提交/推送仍执行既定 Hook。"
+    ]
+  },
   "evidence": [
     "2026-10-15：监督员只读审查最新方案、文档、检查脚本、Git/Codex hooks、CI 与测试。D006 Web 先行有效，M00 未包含业务开发。",
     "监督员独立运行 python3 scripts/quality_gate.py full --no-review：11 tests 全部通过。",
@@ -17,8 +27,8 @@
   ],
   "limitations": [
     "PASS 仅覆盖该 digest 内容与执行位；之后修改需要重新审查。",
-    "正式 GitHub 创建、推送、远端 SHA 与 CI 在发布阶段另行核实；本记录不声明已经发布。",
-    "Codex 项目 hooks 首次需用户通过 /hooks 信任；测试事件协议不等于宿主自动触发已启用。",
+    "首次代码发布及其 CI 已核实；本次发布记录更新的提交、推送和 CI 由交付流程另行核实。",
+    "用户已确认在 /hooks 中信任项目 hooks；事件协议测试本身不等于宿主触发状态的独立证明。",
     "不包含业务 Web、真实模型或声音效果验收；武汉话与人物相似度需人工试听。"
   ]
 }
