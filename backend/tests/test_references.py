@@ -169,11 +169,12 @@ def test_actual_compressed_formats(tmp_path: Path, suffix: str, codec: str) -> N
         (wav_bytes(), "unsupported.txt"),
         (wav_bytes(), "../path.wav"),
     ],
+    ids=["invalid-bytes", "empty", "too-short", "playlist", "disguised-wav", "unsupported", "path"],
 )
 def test_bad_uploads_leave_no_record_or_file(tmp_path: Path, content: bytes, filename: str) -> None:
     with project_client(tmp_path) as (client, base):
         response = upload(client, base, content, filename)
-        assert response.status_code == 422
+        assert response.status_code == 422, response.text
         assert "error" in response.json()
         assert client.get(f"{base}/references").json() == {"references": [], "active_clip_id": None}
         assert not list((tmp_path / "audio-tmp").glob("*"))
