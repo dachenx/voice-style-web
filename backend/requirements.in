@@ -1,0 +1,8 @@
+# Dependency roots; requirements.lock pins the full resolved development environment.
+fastapi
+uvicorn
+pydantic
+httpx
+pytest
+ruff
+mypy

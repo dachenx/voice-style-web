@@ -1,0 +1,43 @@
+{
+  "module": "M01",
+  "reviewer": "Plan Guardian（真实独立只读子代理 m01_guardian）",
+  "verdict": "PASS",
+  "digest": "220ca701e8abdabf58a089d70510879f9327c53a9d04d117a019355c930de162",
+  "evidence": [
+    "实际重新计算摘要，核对暂存 diff、最终 README、D010、O003 与当前模块范围；git diff --cached --check 通过且无未暂存改动",
+    "监督员独立复跑迁移、真实服务进程重启及进程组清理相关 6 项测试通过",
+    "监督员独立复跑延迟旧响应创建及重命名浏览器回归，桌面与 390px 窄屏共 2 项通过",
+    "监督员目视桌面和窄屏本机截图，无明显溢出或被遮挡操作",
+    "修复 EPERM 后，监督员再次独立执行 backend/tests/test_dev_processes.py，7 passed；检查暂存差异并在测试后重新计算本记录的新摘要，确认一致",
+    "集成者执行修复后的 full --no-review 退出 0：治理 11 项、后端 24 项、浏览器 12 项，共 47 项；ruff、mypy、ESLint、TypeScript 与 Vite 构建通过",
+    "集成者实测开发及构建启动的页面与 health 为 200，开发脚本停止后 8000 与 5173 端口均可重新绑定"
+  ],
+  "findings": [],
+  "resolved_findings": [
+    {
+      "issue": "在途旧列表响应可能覆盖创建或重命名后的新项目状态",
+      "resolution": "写入递增版本，旧列表及详情的成功/失败回调核验版本和取消信号，写入后重新读取；真实延迟响应回归通过"
+    },
+    {
+      "issue": "开发管理进程先退出时可能遗留后代进程，清理存在 ProcessLookupError 竞态",
+      "resolution": "遍历全部拥有的进程组，容错发送 TERM/KILL；实际管理进程存活/已退出、后代忽略 TERM 占端口和重复清理测试通过"
+    },
+    {
+      "issue": "正式 pre-commit 发现重复清理进程组时出现间歇性 EPERM，原因未完全确定，原审核因修复失效",
+      "resolution": "仅在系统 ps 成功且证实目标组无非 Z 成员时视为完成；活成员、查询失败和坏输出均继续报原 PermissionError；TERM、KILL、测试 finally 共用逻辑，独立 7 项回归通过"
+    }
+  ],
+  "review_stages": [
+    "开工 PASS：M01 范围符合 D006，要求记录 D010、迁移拒绝未知版本、真实重启与浏览器验证",
+    "阶段 NEEDS_CHANGES：发现旧读取覆盖和进程组清理问题，暂停提交并修正",
+    "针对性复核 PASS：两项修复机制符合要求，待真实浏览器通过",
+    "第一次最终 PASS：复跑关键回归、审核证据与摘要；随后被正式提交检查发现的新证据撤回，未据此提交",
+    "修复后最终 PASS：监督员独立复跑 7 项进程清理回归，核对新摘要 220ca701e8abdabf58a089d70510879f9327c53a9d04d117a019355c930de162，无未解决实质发现"
+  ],
+  "limitations": [
+    "仅覆盖 M01 项目管理；不包括音频、文案转换、模型、任务队列或声音效果验收",
+    "提交前结论，远端 SHA 与 GitHub CI 由推送后另行核实",
+    "本机 macOS 已验收；Windows 未验收，不能宣称通过",
+    "FastAPI/Starlette 的 httpx 测试兼容层有弃用警告，当前行为测试通过"
+  ]
+}

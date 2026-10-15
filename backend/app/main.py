@@ -1,0 +1,157 @@
+"""M01 HTTP API and optional built frontend."""
+
+import logging
+import os
+import sqlite3
+import unicodedata
+from collections.abc import AsyncIterator
+from contextlib import asynccontextmanager
+from datetime import UTC, datetime
+from pathlib import Path
+from typing import Any
+from uuid import UUID, uuid4
+
+from fastapi import FastAPI, Request
+from fastapi.exceptions import RequestValidationError
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel, ConfigDict, field_validator
+from starlette.exceptions import HTTPException
+
+from .storage import connect, migrate
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+logger = logging.getLogger(__name__)
+
+
+class ProjectInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str
+
+    @field_validator("name")
+    @classmethod
+    def valid_name(cls, value: str) -> str:
+        if any(unicodedata.category(character) == "Cc" for character in value):
+            raise ValueError("项目名称不能包含控制字符")
+        value = value.strip()
+        if not 1 <= len(value) <= 80:
+            raise ValueError("项目名称去除首尾空白后须为 1–80 个字符")
+        return value
+
+
+def error(status: int, code: str, message: str) -> JSONResponse:
+    return JSONResponse(status_code=status, content={"error": {"code": code, "message": message}})
+
+
+def create_app(data_dir: str | Path | None = None) -> FastAPI:
+    directory = Path(data_dir or os.environ.get("VOICE_DATA_DIR") or REPO_ROOT / "data")
+    database = directory / "projects.sqlite3"
+
+    @asynccontextmanager
+    async def lifespan(application: FastAPI) -> AsyncIterator[None]:
+        application.state.storage_ready = False
+        try:
+            directory.mkdir(parents=True, exist_ok=True)
+            migrate(database)
+            application.state.storage_ready = True
+        except (OSError, sqlite3.Error):
+            # Serve an actionable, path-free error rather than exposing startup details.
+            logger.exception("本地存储初始化失败")
+        yield
+
+    application = FastAPI(title="Voice Style Web", lifespan=lifespan)
+
+    @application.exception_handler(RequestValidationError)
+    async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
+        return error(
+            422,
+            "invalid_input",
+            "输入无效：项目名称须为 1–80 个字符且不含控制字符，项目 ID 须为有效 UUID",
+        )
+
+    @application.exception_handler(HTTPException)
+    async def http_error(request: Request, exc: HTTPException) -> JSONResponse:
+        if exc.status_code == 404:
+            return error(404, "not_found", "项目或接口不存在")
+        return error(exc.status_code, "http_error", "请求无法处理")
+
+    @application.exception_handler(sqlite3.Error)
+    async def storage_error(request: Request, exc: sqlite3.Error) -> JSONResponse:
+        logger.error("本地存储请求失败", exc_info=(type(exc), exc, exc.__traceback__))
+        return error(503, "storage_unavailable", "本地存储暂不可用，请检查存储目录权限后重启服务")
+
+    def require_storage() -> None:
+        if not application.state.storage_ready:
+            raise sqlite3.OperationalError("storage unavailable")
+
+    @application.get("/api/health")
+    def health() -> dict[str, str]:
+        require_storage()
+        with connect(database) as connection:
+            connection.execute("SELECT 1 FROM projects LIMIT 1")
+        return {"status": "ok"}
+
+    @application.get("/api/projects")
+    def list_projects() -> dict[str, list[dict[str, Any]]]:
+        require_storage()
+        with connect(database) as connection:
+            rows = connection.execute("SELECT * FROM projects ORDER BY updated_at DESC, id ASC")
+            return {"projects": [dict(row) for row in rows]}
+
+    @application.post("/api/projects", status_code=201)
+    def create_project(payload: ProjectInput) -> dict[str, str]:
+        require_storage()
+        timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        project = dict(
+            id=str(uuid4()), name=payload.name, created_at=timestamp, updated_at=timestamp
+        )
+        with connect(database) as connection:
+            connection.execute(
+                "INSERT INTO projects VALUES (:id, :name, :created_at, :updated_at)", project
+            )
+        return project
+
+    @application.get("/api/projects/{project_id}")
+    def get_project(project_id: UUID) -> dict[str, Any]:
+        require_storage()
+        with connect(database) as connection:
+            row = connection.execute(
+                "SELECT * FROM projects WHERE id = ?", (str(project_id),)
+            ).fetchone()
+        if row is None:
+            raise HTTPException(404)
+        return dict(row)
+
+    @application.patch("/api/projects/{project_id}")
+    def rename_project(project_id: UUID, payload: ProjectInput) -> dict[str, Any]:
+        require_storage()
+        timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
+        with connect(database) as connection:
+            cursor = connection.execute(
+                "UPDATE projects SET name = ?, updated_at = ? WHERE id = ?",
+                (payload.name, timestamp, str(project_id)),
+            )
+            if cursor.rowcount == 0:
+                raise HTTPException(404)
+            row = connection.execute(
+                "SELECT * FROM projects WHERE id = ?", (str(project_id),)
+            ).fetchone()
+        assert row is not None
+        return dict(row)
+
+    @application.api_route(
+        "/api", methods=["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS"]
+    )
+    @application.api_route(
+        "/api/{path:path}", methods=["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS"]
+    )
+    def missing_api(path: str = "") -> JSONResponse:
+        return error(404, "not_found", "接口不存在")
+
+    frontend = REPO_ROOT / "frontend" / "dist"
+    if frontend.is_dir():
+        application.mount("/", StaticFiles(directory=frontend, html=True), name="frontend")
+    return application
+
+
+app = create_app()
