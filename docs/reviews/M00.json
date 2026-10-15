@@ -1,0 +1,24 @@
+{
+  "module": "M00",
+  "reviewer": "配音 Web 方案团队讨论中的独立 Plan Guardian 子代理",
+  "verdict": "PASS",
+  "digest": "d7946ceddfd20f34fb8ce5e719732a82f667984b7879d9800f3d8a4144dd98ce",
+  "evidence": [
+    "2026-10-15：监督员只读审查最新方案、文档、检查脚本、Git/Codex hooks、CI 与测试。D006 Web 先行有效，M00 未包含业务开发。",
+    "监督员独立运行 python3 scripts/quality_gate.py full --no-review：11 tests 全部通过。",
+    "真实 git commit 验证缺审查和错误提交说明被拦截、正确提交成功。",
+    "真实 git push 经仅限测试的本地 SSH 传输进入临时 bare 仓库；错误仓库地址被拒且没有远端分支，授权地址推送成功且远端 SHA 等于 HEAD。原 pre-push 脚本未替换，测试不访问 GitHub。",
+    "已覆盖范围越界、删除必要记录、Python/JSON 错误、冲突、私有素材/密钥、过时审查、未解决发现、未暂存/未跟踪修改、失败/缺失/超时命令、后续模块 base_commit、符号链接、Codex 反馈及 Stop 防循环。"
+  ],
+  "findings": [],
+  "resolved_findings": [
+    "P2：pre-push 原未检查目标仓库；现接收实际远端 URL 并仅允许 dachenx/voice-style-web。",
+    "原只直接调用 pre-push 脚本；现增加真实 git push 正反例及远端提交核对。"
+  ],
+  "limitations": [
+    "PASS 仅覆盖该 digest 内容与执行位；之后修改需要重新审查。",
+    "正式 GitHub 创建、推送、远端 SHA 与 CI 在发布阶段另行核实；本记录不声明已经发布。",
+    "Codex 项目 hooks 首次需用户通过 /hooks 信任；测试事件协议不等于宿主自动触发已启用。",
+    "不包含业务 Web、真实模型或声音效果验收；武汉话与人物相似度需人工试听。"
+  ]
+}

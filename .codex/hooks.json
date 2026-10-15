@@ -1,0 +1,30 @@
+{
+  "description": "voice-style-web: check changed code and require module acceptance before completion",
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": ".*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/codex_hook.py\"",
+            "timeout": 160,
+            "statusMessage": "检查本模块代码与方案范围"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"$(git rev-parse --show-toplevel)/scripts/codex_hook.py\"",
+            "timeout": 160,
+            "statusMessage": "核查功能验收和方案监督结论"
+          }
+        ]
+      }
+    ]
+  }
+}

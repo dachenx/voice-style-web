@@ -1,0 +1,16 @@
+{
+  "id": "M00",
+  "title": "项目治理与检查机制",
+  "base_commit": null,
+  "allowed_paths": ["README.md", "AGENTS.md", ".gitignore", ".codex/hooks.json", ".githooks/", ".github/", "docs/", "quality/", "scripts/", "tests/"],
+  "acceptance": [
+    "初版、形成过程及 Web 先行变更可追溯；决策与优化分开记录",
+    "仅交付治理模块，不包含业务 Web 或声音能力声明",
+    "正反例验证越界、语法失败、测试失败、旧审查与未暂存变更均被拦截",
+    "监督员独立审查内容，Git 提交/推送执行检查"
+  ],
+  "checks": [
+    {"name": "治理行为回归", "argv": ["{python}", "-m", "unittest", "discover", "-s", "tests", "-v"], "timeout": 120}
+  ],
+  "review": "docs/reviews/M00.json"
+}
