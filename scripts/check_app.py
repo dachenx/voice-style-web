@@ -1,4 +1,4 @@
-"""Run the locked M01 checks; use the project venv even from system Git hooks."""
+"""Run the locked application checks; use the project venv even from system Git hooks."""
 
 from pathlib import Path
 import os

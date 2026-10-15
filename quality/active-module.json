@@ -1,18 +1,18 @@
 {
-  "id": "M01",
-  "title": "前后端骨架与项目持久化",
-  "base_commit": "d71c9d85c2ce072e5b471581c33824e6b2e058a7",
+  "id": "M02",
+  "title": "参考音频上传、试听与非破坏性选段",
+  "base_commit": "897e9f5ce46a2e7cfcaa3216834b7d696df4d199",
   "allowed_paths": ["README.md", ".gitignore", ".github/workflows/quality.yml", "docs/", "quality/active-module.json", "scripts/", "backend/", "frontend/"],
   "acceptance": [
-    "React/TypeScript 页面与 FastAPI 服务可本地启动，提供项目列表、创建、重命名和详情",
-    "SQLite 迁移可从空目录执行、重复启动不丢数据；实际进程重启后项目保持",
-    "名称无效、项目不存在、网络或存储失败均有明确错误，不显示虚假成功",
-    "仅实现 M01；不包含音频、文案转换、任务队列、模型或声音效果声明",
-    "注册前后端 lint/typecheck/build 与真实浏览器行为测试，保留治理回归与独立审查"
+    "按项目上传 WAV/MP3/M4A/FLAC/OGG；单文件不超过 50 MiB，解码时长为 0.1–600 秒；坏文件与超限明确报错",
+    "原件按字节保留并可下载，试听副本与选段独立存储；多次上传和保存选段不覆盖旧文件",
+    "可试听完整音频、输入起止时间、保存并试听片段、选择当前参考片段；刷新及服务重启恢复",
+    "错误上传不留下有效记录，跨项目访问隔离；网络、解码及存储错误不显示虚假成功",
+    "仅实现 M02，不包含文案转换、语音生成、模型或任务队列；保留 M01 与治理回归"
   ],
   "checks": [
     {"name": "治理行为回归", "argv": ["{python}", "-m", "unittest", "discover", "-s", "tests", "-v"], "timeout": 120},
-    {"name": "M01 前后端与浏览器验收", "argv": ["{python}", "scripts/check_m01.py"], "timeout": 300}
+    {"name": "M02 前后端与浏览器验收（含 M01 回归）", "argv": ["{python}", "scripts/check_app.py"], "timeout": 420}
   ],
-  "review": "docs/reviews/M01.json"
+  "review": "docs/reviews/M02.json"
 }

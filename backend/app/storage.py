@@ -16,6 +16,7 @@ def connect(database: Path) -> Iterator[sqlite3.Connection]:
     connection = sqlite3.connect(database, timeout=5)
     connection.row_factory = sqlite3.Row
     connection.execute("PRAGMA busy_timeout = 5000")
+    connection.execute("PRAGMA foreign_keys = ON")
     try:
         with connection:
             yield connection
