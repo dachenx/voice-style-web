@@ -4,7 +4,7 @@ import logging
 import os
 import sqlite3
 import unicodedata
-from collections.abc import AsyncIterator
+from collections.abc import AsyncIterator, Sequence
 from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 from pathlib import Path
@@ -22,6 +22,8 @@ from .audio import AudioError
 from .directory_lock import DirectoryLock
 from .references import cleanup_uncommitted, router
 from .storage import connect, migrate
+from .text_converters import ConverterRegistry, TextConverter
+from .text_documents import TextError, text_router
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
@@ -46,7 +48,9 @@ def error(status: int, code: str, message: str) -> JSONResponse:
     return JSONResponse(status_code=status, content={"error": {"code": code, "message": message}})
 
 
-def create_app(data_dir: str | Path | None = None) -> FastAPI:
+def create_app(
+    data_dir: str | Path | None = None, *, text_converters: Sequence[TextConverter] = ()
+) -> FastAPI:
     directory = Path(data_dir or os.environ.get("VOICE_DATA_DIR") or REPO_ROOT / "data")
     database = directory / "projects.sqlite3"
 
@@ -69,13 +73,14 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             directory_lock.close()
 
     application = FastAPI(title="Voice Style Web", lifespan=lifespan)
+    registry = ConverterRegistry(text_converters)
 
     @application.exception_handler(RequestValidationError)
     async def validation_error(request: Request, exc: RequestValidationError) -> JSONResponse:
         return error(
             422,
             "invalid_input",
-            "输入无效：请检查名称、UUID 和整数毫秒起止时间",
+            "输入无效：请检查字段类型、名称、UUID、文字长度及整数版本或起止时间",
         )
 
     @application.exception_handler(HTTPException)
@@ -96,6 +101,10 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
 
     @application.exception_handler(AudioError)
     async def audio_error(request: Request, exc: AudioError) -> JSONResponse:
+        return error(exc.status, exc.code, exc.message)
+
+    @application.exception_handler(TextError)
+    async def text_error(request: Request, exc: TextError) -> JSONResponse:
         return error(exc.status, exc.code, exc.message)
 
     def require_storage() -> None:
@@ -158,6 +167,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         return dict(row)
 
     application.include_router(router(directory, database, require_storage))
+    application.include_router(text_router(database, require_storage, registry))
 
     @application.api_route(
         "/api", methods=["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS"]

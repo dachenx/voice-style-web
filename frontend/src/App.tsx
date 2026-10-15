@@ -3,6 +3,8 @@ import { ArrowDown, ArrowRight, AudioLines, Check, ChevronRight, CircleAlert, Fo
   FolderOpen, HardDrive, Layers3, LoaderCircle, Pencil, Plus, RefreshCw, X } from 'lucide-react';
 import { messageOf, request, validateName, type Project } from './api';
 import ReferencePanel from './ReferencePanel';
+import TextPanel from './TextPanel';
+import { pendingDrafts } from './textDraftCache';
 
 type Detail = { state: 'loading' } | { state: 'error'; message: string } |
   { state: 'ready'; project: Project };
@@ -80,6 +82,13 @@ function NameDialog({ editing, onDismiss, onSaved }: {
 }
 
 export default function App() {
+  useEffect(() => {
+    const warn = (event: BeforeUnloadEvent) => {
+      if (pendingDrafts.size > 0) { event.preventDefault(); event.returnValue = ''; }
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, []);
   const [projects, setProjects] = useState<Project[]>([]);
   const [loading, setLoading] = useState(true);
   const [listError, setListError] = useState<string | null>(null);
@@ -217,8 +226,9 @@ export default function App() {
               </>}
           </section>}
         </div>
-        {selectedId && detail.state === 'ready' && <ReferencePanel key={selectedId} project={detail.project}
+        {selectedId && detail.state === 'ready' && <ReferencePanel key={`reference-${selectedId}`} project={detail.project}
           onChanged={() => { writeEpoch.current += 1; setRefresh((value) => value + 1); }} />}
+        {selectedId && <TextPanel key={`text-${selectedId}`} projectId={selectedId} />}
         <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>项目管理已就绪 · 配音功能逐步开放</span></footer>
       </div>
     </main>
