@@ -12,7 +12,7 @@ PYTHON = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/pyt
 
 def main():
     if not PYTHON.exists() or not shutil.which("npm"):
-        raise SystemExit("请先按 README 安装 .venv、Node.js 与前端依赖。")
+        raise SystemExit("请先按《项目说明.md》安装 .venv、Node.js 与前端依赖。")
     checks = [
         [str(PYTHON), "-m", "ruff", "check", "--config", "backend/pyproject.toml", "backend"],
         [str(PYTHON), "-m", "mypy", "--config-file", "backend/pyproject.toml", "backend/app"],

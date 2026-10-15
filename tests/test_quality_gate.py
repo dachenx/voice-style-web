@@ -28,12 +28,16 @@ class QualityGateTests(unittest.TestCase):
         self.run_git("config", "user.name", "Fixture")
         self.run_git("config", "user.email", "fixture@example.invalid")
         self.write(".gitignore", ".quality-local/\n__pycache__/\n")
-        for name in ("AGENTS.md", "docs/DECISIONS.md", "docs/OPTIMIZATIONS.md"):
+        for name in (
+            "AGENTS.md", "README.md", "项目说明.md", "docs/协作规则.md",
+            "docs/项目方案与决策记录.md", "docs/优化与问题修复记录.md",
+            "docs/分模块开发与验收.md", "docs/团队协作与方案监督.md",
+        ):
             self.write(name, "Fixture\n")
         self.write("scripts/feature.py", "answer = 42\n")
         self.config = {
             "id": "M00", "base_commit": None,
-            "allowed_paths": [".gitignore", "AGENTS.md", "docs/", "scripts/", "quality/", ".githooks/"],
+            "allowed_paths": [".gitignore", "AGENTS.md", "README.md", "项目说明.md", "docs/", "scripts/", "quality/", ".githooks/"],
             "acceptance": ["fixture acceptance"],
             "checks": [{"name": "behavior", "argv": ["{python}", "-c", "assert 2 + 2 == 4"], "timeout": 10}],
             "review": "docs/reviews/M00.json"
@@ -69,9 +73,26 @@ class QualityGateTests(unittest.TestCase):
         with self.assertRaisesRegex(gate.GateError, "超出"):
             gate.quick(self.root, self.config, gate.files(self.root))
         (self.root / "backend/app.py").unlink()
-        (self.root / "docs/DECISIONS.md").unlink()
-        with self.assertRaisesRegex(gate.GateError, "缺少"):
-            gate.quick(self.root, self.config, gate.files(self.root))
+        for name in ("docs/项目方案与决策记录.md", "docs/协作规则.md", "项目说明.md"):
+            with self.subTest(document=name):
+                (self.root / name).unlink()
+                with self.assertRaisesRegex(gate.GateError, "缺少"):
+                    gate.quick(self.root, self.config, gate.files(self.root))
+                self.write(name, "Fixture\n")
+
+    def test_supplementary_review_path_keeps_module_and_directory_boundary(self):
+        self.config["review"] = "docs/reviews/M00-docs.json"
+        self.save_config()
+        self.assertEqual(gate.module(self.root)["review"], self.config["review"])
+        self.approve()
+        gate.assert_review(self.root, self.config, gate.files(self.root))
+        for value in ("docs/reviews/M01-docs.json", "docs/reviews/M00/../other.json",
+                      "docs/reviews/M00-docs.md", "/tmp/M00-docs.json", None):
+            with self.subTest(path=value):
+                self.config["review"] = value
+                self.save_config()
+                with self.assertRaisesRegex(gate.GateError, "审查路径"):
+                    gate.module(self.root)
 
     def test_python_json_and_conflicts_block(self):
         for text in ("def invalid(\n", "<<<<<<< ours\n"):

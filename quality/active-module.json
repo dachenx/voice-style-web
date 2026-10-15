@@ -2,17 +2,49 @@
   "id": "M02",
   "title": "参考音频上传、试听与非破坏性选段",
   "base_commit": "897e9f5ce46a2e7cfcaa3216834b7d696df4d199",
-  "allowed_paths": ["README.md", ".gitignore", ".github/workflows/quality.yml", "docs/", "quality/active-module.json", "scripts/", "backend/", "frontend/"],
+  "allowed_paths": [
+    "README.md",
+    ".gitignore",
+    ".github/workflows/quality.yml",
+    "docs/",
+    "quality/active-module.json",
+    "scripts/",
+    "backend/",
+    "frontend/",
+    "AGENTS.md",
+    "项目说明.md",
+    "tests/"
+  ],
   "acceptance": [
     "按项目上传 WAV/MP3/M4A/FLAC/OGG；单文件不超过 50 MiB，解码时长为 0.1–600 秒；坏文件与超限明确报错",
     "原件按字节保留并可下载，试听副本与选段独立存储；多次上传和保存选段不覆盖旧文件",
     "可试听完整音频、输入起止时间、保存并试听片段、选择当前参考片段；刷新及服务重启恢复",
     "错误上传不留下有效记录，跨项目访问隔离；网络、解码及存储错误不显示虚假成功",
-    "仅实现 M02，不包含文案转换、语音生成、模型或任务队列；保留 M01 与治理回归"
+    "仅实现 M02，不包含文案转换、语音生成、模型或任务队列；保留 M01 与治理回归",
+    "M02 文档治理补充：中文正文与标准入口完整，活跃引用有效，逐条错误记录保留证据、尝试、验证与状态；不启动 M03"
   ],
   "checks": [
-    {"name": "治理行为回归", "argv": ["{python}", "-m", "unittest", "discover", "-s", "tests", "-v"], "timeout": 120},
-    {"name": "M02 前后端与浏览器验收（含 M01 回归）", "argv": ["{python}", "scripts/check_app.py"], "timeout": 420}
+    {
+      "name": "治理行为回归",
+      "argv": [
+        "{python}",
+        "-m",
+        "unittest",
+        "discover",
+        "-s",
+        "tests",
+        "-v"
+      ],
+      "timeout": 120
+    },
+    {
+      "name": "M02 前后端与浏览器验收（含 M01 回归）",
+      "argv": [
+        "{python}",
+        "scripts/check_app.py"
+      ],
+      "timeout": 420
+    }
   ],
-  "review": "docs/reviews/M02.json"
+  "review": "docs/reviews/M02-docs.json"
 }
