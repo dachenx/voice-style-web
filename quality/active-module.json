@@ -1,11 +1,11 @@
 {
   "id": "M05",
-  "title": "M05 首轮参考对比的决定与执行记录",
-  "base_commit": "dc16435572df01a475945425edd3b027e66687cb",
+  "title": "M05 优选参考重复与三段复核记录",
+  "base_commit": "9d158f957240b93a0d82aacd0146c843da43110c",
   "allowed_paths": [
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M05-reference-comparison.json",
+    "docs/reviews/M05-reference-repeat.json",
     "quality/active-module.json"
   ],
   "acceptance": [
@@ -43,5 +43,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M05-reference-comparison.json"
+  "review": "docs/reviews/M05-reference-repeat.json"
 }
