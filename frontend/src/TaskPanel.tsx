@@ -2,7 +2,8 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, messageOf, request } from './api';
 import type { Clip, ReferenceAudio } from './ReferencePanel';
 import type { TextDocument } from './TextPanel';
-import type { Adapter, Task, TaskDetail, TaskInput, WorkerHealth } from './taskTypes';
+import ReferenceTranscriptEditor, { type TranscriptReadiness } from './ReferenceTranscript';
+import type { Adapter, AdapterHealth, Task, TaskDetail, TaskInput, WorkerHealth } from './taskTypes';
 
 type Library = { references: ReferenceAudio[]; active_clip_id: string | null };
 type Pending = { kind: 'create'; input: TaskInput } | { kind: 'retry'; taskId: string; input: { request_id: string } };
@@ -27,13 +28,13 @@ const merge = (old: Task[], incoming: Task[]) => {
   return [...values.values()].sort((a, b) => b.created_at.localeCompare(a.created_at) || a.id.localeCompare(b.id));
 };
 
-function ResultAudio({ url }: { url: string }) {
+function ResultAudio({ url, simulated }: { url: string; simulated: boolean }) {
   const [failed, setFailed] = useState(false);
   const [attempt, setAttempt] = useState(0);
   return <div className="audio-player"><audio key={attempt} controls preload="metadata" src={url}
-    aria-label="模拟任务结果" onError={() => setFailed(true)} />
-    {failed && <p role="alert" className="error-box">模拟音频无法读取，请核对本地服务和结果文件。
-      <button className="text-button" onClick={() => { setFailed(false); setAttempt((value) => value + 1); }}>重载模拟音频</button></p>}</div>;
+    aria-label={simulated ? '模拟任务结果' : '真实语音任务结果'} onError={() => setFailed(true)} />
+    {failed && <p role="alert" className="error-box">音频无法读取，请核对本地服务和结果文件。
+      <button className="text-button" onClick={() => { setFailed(false); setAttempt((value) => value + 1); }}>{simulated ? '重载模拟音频' : '重载语音'}</button></p>}</div>;
 }
 
 export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, referenceRefresh, onChanged }: {
@@ -47,6 +48,10 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
   const [loaded, setLoaded] = useState(false);
   const [library, setLibrary] = useState<Library | null>(null);
   const [adapters, setAdapters] = useState<Adapter[]>([]);
+  const [adapterId, setAdapterId] = useState('simulated-tone');
+  const [adapterHealth, setAdapterHealth] = useState<{ value: AdapterHealth; stamp: string } | null>(null);
+  const [healthError, setHealthError] = useState('');
+  const [transcript, setTranscript] = useState<TranscriptReadiness | null>(null);
   const [inputError, setInputError] = useState('');
   const [inputReady, setInputReady] = useState(false);
   const [inputStamp, setInputStamp] = useState('');
@@ -64,7 +69,10 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
   const detailOperation = useRef(0);
   const inputOperation = useRef(0);
   const [pollTick, setPollTick] = useState(0);
-  const adapter = adapters.find((item) => item.id === 'simulated-tone' && item.is_simulated);
+  const adapter = adapters.find((item) => item.id === adapterId);
+  const real = adapter !== undefined && !adapter.is_simulated;
+  const stamp = `${referenceRefresh}:${inputRefresh}`;
+  const health = adapterHealth?.value.adapter_id === adapterId && adapterHealth.stamp === stamp ? adapterHealth.value : null;
   const selected = library?.references.flatMap((reference) => reference.clips.map((clip) => ({ reference, clip })))
     .find(({ clip }) => clip.id === library.active_clip_id);
   const confirmed = doc?.latest_confirmation;
@@ -73,7 +81,11 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     textError ? '文案读取或保存出错，请先处理文案工作台中的提示。' :
       !doc.confirmation_current || !confirmed ? '请先保存完整文案并人工确认。' :
         !inputReady || inputStamp !== `${referenceRefresh}:${inputRefresh}` ? '等待参考与组件读取，请稍后或刷新重试。' : !selected ? '请先在参考声音中保存并选择当前片段。' :
-          !adapter ? '模拟生成组件不可用，请刷新组件信息。' : '';
+          !adapter ? '生成组件不可用，请刷新组件信息。' :
+            real && (!health || !health.execution_available || healthError) ? '真实模型尚不可调用，请先处理下方的模型状态提示。' :
+              real && adapter.reference_max_duration_ms !== undefined && selected.clip.end_ms - selected.clip.start_ms > adapter.reference_max_duration_ms ?
+                `参考片段超过该模型的 ${adapter.reference_max_duration_ms / 1000} 秒限制，请重新选段。` :
+                real && (!transcript?.ready || transcript.clipId !== selected.clip.id) ? '请填写、核对并保存当前参考片段的准确原话。' : '';
 
   useEffect(() => {
     const abort = new AbortController();
@@ -96,6 +108,15 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     });
     return () => { abort.abort(); };
   }, [projectId, referenceRefresh, inputRefresh]);
+
+  useEffect(() => {
+    if (adapterId === 'simulated-tone') return;
+    const abort = new AbortController();
+    request<AdapterHealth>(`/generation-adapters/${encodeURIComponent(adapterId)}/health`, { signal: abort.signal }).then((value) => {
+      if (!abort.signal.aborted) { setAdapterHealth({ value, stamp }); setHealthError(''); }
+    }).catch((cause) => { if (!abort.signal.aborted) setHealthError(messageOf(cause)); });
+    return () => { abort.abort(); };
+  }, [adapterId, stamp]);
 
   const readTasks = useCallback(async () => {
     const abort = lifetime.current;
@@ -141,7 +162,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       if (abort.signal.aborted) return;
       clearPending(); listOperation.current += 1;
       setTasks((old) => merge(old, [task]));
-      setNotice(value.kind === 'retry' ? '重试任务已保存，继续使用原任务的固定输入。' : '模拟任务已保存到本机队列。');
+      setNotice(value.kind === 'retry' ? '重试任务已保存，继续使用原任务的固定输入。' : task.is_simulated ? '模拟任务已保存到本机队列。' : '真实语音任务已保存到本机队列。');
       onChanged();
       setPollTick((tick) => tick + 1);
     } catch (cause) {
@@ -158,7 +179,9 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     if (blocked || pending || busyRef.current || !doc || !confirmed || !selected || !adapter || !selectedParagraph) return;
     void send({ kind: 'create', input: { request_id: crypto.randomUUID(), expected_revision: doc.revision,
       expected_confirmation_id: confirmed.id, expected_clip_id: selected.clip.id, adapter_id: adapter.id,
-      mode, paragraph_id: mode === 'preview' ? selectedParagraph.id : null, parameters: {} } });
+      mode, paragraph_id: mode === 'preview' ? selectedParagraph.id : null, parameters: {},
+      ...(real ? { expected_transcript_revision: transcript!.value!.revision, expected_adapter_version: adapter.version,
+        expected_config_fingerprint: adapter.config_fingerprint } : {}) } });
   }
   async function cancel(task: Task) {
     const abort = lifetime.current;
@@ -189,10 +212,14 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
   }
   const clipRange = (clip: Pick<Clip, 'start_ms' | 'end_ms'>) => `${(clip.start_ms / 1000).toFixed(3)}–${(clip.end_ms / 1000).toFixed(3)} 秒`;
 
-  return <section className="reference-panel task-panel" aria-label="模拟生成与任务">
-    <div className="reference-heading"><div><span className="eyebrow">SIMULATED GENERATION</span><h2>模拟生成与任务</h2>
-      <p>仅生成合成测试音，用于验证排队和恢复流程；不会朗读文案、复刻参考声音或生成武汉话。</p></div><span className="simulation-badge">模拟模式</span></div>
-    <p className="audio-hint">建议先做短段测试，再将全部段落排队。没有真实声音模型，语速、情绪和读音备注不会控制测试音。</p>
+  return <section className="reference-panel task-panel" aria-label={real ? '真实语音与任务' : '模拟生成与任务'}>
+    <div className="reference-heading"><div><span className="eyebrow">VOICE GENERATION</span><h2>{real ? '真实语音与任务' : '模拟生成与任务'}</h2>
+      <p>{real ? '使用本机模型和当前参考片段生成语音。武汉话、人物相似度和自然度需要生成后逐项试听。' : '仅生成合成测试音，用于验证排队和恢复流程；不会朗读文案、复刻参考声音或生成武汉话。'}</p></div><span className="simulation-badge">{real ? '本机真实模型 · 效果待验' : '模拟模式'}</span></div>
+    <p className="audio-hint">建议先做短段测试，再将全部段落排队。当前适配器没有语速、情绪或读音备注控制。</p>
+    <label className="audio-label" htmlFor={`generation-adapter-${projectId}`}>选择生成组件</label>
+    <select id={`generation-adapter-${projectId}`} value={adapterId} disabled={busy || !!pending} onChange={(event) => {
+      setAdapterId(event.target.value); setAdapterHealth(null); setHealthError('');
+    }}>{adapters.map((item) => <option key={item.id} value={item.id}>{item.label}{item.is_simulated ? '（模拟）' : '（真实模型）'}</option>)}</select>
     <div className="task-input-summary">
       <p>确认文案：{doc?.confirmation_current && confirmed && !dirty ? `版本 ${confirmed.revision}` : '尚不可用'}</p>
       <p>当前参考：{selected ? `${selected.reference.filename} · ${clipRange(selected.clip)}` : '未选择'}</p>
@@ -200,6 +227,16 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       <button className="text-button" onClick={() => { setInputReady(false); setInputRefresh((value) => value + 1); }}>刷新参考与组件</button>
     </div>
     {inputError && <p role="alert" className="error-box">参考或组件读取失败：{inputError}</p>}
+    {real && <div className="model-status" aria-label="真实模型状态">
+      <p>{health ? !health.configured ? '模型未配置' : !health.configuration_valid ? '模型配置不可用' : health.execution_available ? '模型调用入口可用 · 任务执行时加载' : '模型调用入口尚不可用' : '正在检查模型环境…'}</p>
+      <p className="audio-hint">{health?.model_loaded ? '本次检查时模型已加载；声音效果仍待试听。' : health?.last_loaded_at ? `最近加载成功：${new Date(health.last_loaded_at).toLocaleString('zh-CN')}。本次检查时模型未加载，声音效果仍待试听。` : '尚无已加载成功的证明；配置存在不代表声音可用。'} 使用“刷新参考与组件”更新状态。</p>
+      <p className="audio-hint">模型：{adapter.model_id ?? '待配置'} · {adapter.model_revision ?? '版本待核对'}；参考片段最多 {(adapter.reference_max_duration_ms ?? 30000) / 1000} 秒。</p>
+      {adapter.max_text_tokens !== undefined && <p className="audio-hint">每段最多 {adapter.max_text_tokens} 个模型 token，提交后由模型分词器核对；较长文案请在文案工作台分段。{adapter.limit_note}</p>}
+      {health?.error && <p role="alert" className="error-box">{health.error.message}</p>}
+      {healthError && <p role="alert" className="error-box">模型检查失败：{healthError}</p>}
+    </div>}
+    {real && selected && <ReferenceTranscriptEditor key={selected.clip.id} projectId={projectId}
+      referenceId={selected.reference.id} clipId={selected.clip.id} onReady={setTranscript} onChanged={onChanged} />}
     <label className="audio-label" htmlFor={`task-paragraph-${projectId}`}>短段测试段落</label>
     <select id={`task-paragraph-${projectId}`} value={selectedParagraph?.id ?? ''} disabled={busy || !!pending || !!blocked}
       onChange={(event) => setParagraphId(event.target.value)}>
@@ -207,8 +244,8 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       {doc?.paragraphs.map((paragraph, index) => <option key={paragraph.id} value={paragraph.id}>第 {index + 1} 段 · {paragraph.draft_text.slice(0, 32)}</option>)}
     </select>
     {blocked && <p className="field-hint">{blocked}</p>}
-    <div className="task-actions"><button className="button primary" disabled={busy || !!pending || !!blocked} onClick={() => submit('preview')}>提交模拟短段任务</button>
-      <button className="button secondary" disabled={busy || !!pending || !!blocked} onClick={() => submit('full')}>提交模拟全文任务</button></div>
+    <div className="task-actions"><button className="button primary" disabled={busy || !!pending || !!blocked} onClick={() => submit('preview')}>{real ? '提交真实短段任务' : '提交模拟短段任务'}</button>
+      <button className="button secondary" disabled={busy || !!pending || !!blocked} onClick={() => submit('full')}>{real ? '提交真实全文任务' : '提交模拟全文任务'}</button></div>
     {pending && <div className="pending-task"><p>上次提交的结果尚未核对。恢复请求会使用当时的固定输入，不会改用当前编辑内容。</p>
       <button className="button secondary" disabled={busy} onClick={() => void send(pending)}>核对并重试上次提交</button></div>}
     {actionError && <p role="alert" aria-label="任务操作错误" className="error-box">{actionError}</p>}
@@ -218,27 +255,30 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     {worker?.error && <p role="alert" className="error-box">工作进程不可用：{worker.error.message} 队列记录仍保留，请重启本地服务后核对。</p>}
     {listError && <p role="alert" aria-label="任务读取错误" className="error-box">{listError}</p>}
     {!loaded && !listError && <p className="muted">正在读取任务…</p>}
-    {loaded && !tasks.length && <p className="muted">尚无模拟任务。</p>}
+    {loaded && !tasks.length && <p className="muted">尚无生成任务。</p>}
     <div className="task-list">{tasks.map((task) => <article className="task-card" key={task.id} data-task-id={task.id}>
-      <div className="task-card-heading"><h4>模拟{task.mode === 'preview' ? '短段' : '全文'}任务</h4><strong className={`task-state task-${task.state}`}>{labels[task.state]}</strong></div>
+      <div className="task-card-heading"><h4>{task.is_simulated ? '模拟' : '真实语音'}{task.mode === 'preview' ? '短段' : '全文'}任务</h4><strong className={`task-state task-${task.state}`}>{labels[task.state]}</strong></div>
       <p className="audio-hint">{new Date(task.created_at).toLocaleString('zh-CN')} · {task.adapter.id} / {task.adapter.version}</p>
-      <p>{phases[task.phase] ?? task.phase} · 已处理 {task.completed_paragraphs} / {task.total_paragraphs} 段</p>
-      <progress max={Math.max(1, task.total_paragraphs)} value={task.completed_paragraphs} aria-label="模拟任务段落进度" />
+      <p>{!task.is_simulated && task.phase === 'generating' ? '正在生成语音' : phases[task.phase] ?? task.phase} · 已处理 {task.completed_paragraphs} / {task.total_paragraphs} 段</p>
+      <progress max={Math.max(1, task.total_paragraphs)} value={task.completed_paragraphs} aria-label={task.is_simulated ? '模拟任务段落进度' : '语音任务段落进度'} />
       {task.retry_of && <p className="audio-hint">由失败任务重试，使用原输入快照。</p>}
       {task.error && <p className="error-box">{task.error.message}（{task.error.code}）</p>}
       <div className="task-actions"><button className="text-button" onClick={() => void showDetail(task)}>查看任务快照</button>
         {task.state === 'queued' && <button className="text-button" disabled={busy} onClick={() => void cancel(task)}>取消排队</button>}
         {task.state === 'failed' && <button className="button secondary" disabled={busy || !!pending} onClick={() => void send({ kind: 'retry', taskId: task.id, input: { request_id: crypto.randomUUID() } })}>按原输入重试</button>}</div>
       {task.state === 'running' && <p className="audio-hint">正在运行的任务暂不支持取消。</p>}
-      {task.state === 'succeeded' && task.result && <div className="task-result"><p>模拟测试音 · {(task.result.duration_ms / 1000).toFixed(2)} 秒 · 不代表真实配音效果</p>
-        <ResultAudio url={`/api${base}/${task.id}/audio`} /><a className="text-button" href={`/api${base}/${task.id}/download`} download>下载模拟音频</a></div>}
+      {task.state === 'succeeded' && task.result && <div className="task-result"><p>{task.is_simulated ? '模拟测试音' : '真实模型生成'} · {(task.result.duration_ms / 1000).toFixed(2)} 秒 · {task.is_simulated ? '不代表真实配音效果' : '内容、武汉话与音色待试听核对'}</p>
+        <ResultAudio url={`/api${base}/${task.id}/audio`} simulated={task.is_simulated} /><a className="text-button" href={`/api${base}/${task.id}/download`} download>{task.is_simulated ? '下载模拟音频' : '下载生成语音'}</a></div>}
     </article>)}</div>
     {detailError && <p role="alert" className="error-box">任务详情读取失败：{detailError} 请重新点击查看。</p>}
-    {detail && <section className="text-snapshot" aria-label="任务输入快照"><h3>固定输入（只读 · 模拟任务）</h3>
+    {detail && <section className="text-snapshot" aria-label="任务输入快照"><h3>固定输入（只读 · {detail.is_simulated ? '模拟任务' : '真实语音任务'}）</h3>
       <p>任务：{detail.id}</p><p>确认版本：{detail.snapshot.confirmation.revision} · {detail.snapshot.mode === 'preview' ? '指定短段' : '全部段落'}</p>
       <p>参考：{detail.snapshot.reference.filename} · {clipRange(detail.snapshot.reference.clip)}</p>
       <p className="audio-hint">参考片段：{detail.snapshot.reference.clip.id}</p>
       <p>组件：{detail.snapshot.adapter.id} / {detail.snapshot.adapter.version} · 未启用声音控制参数</p>
+      {detail.snapshot.reference.transcript && <p>参考原话（版本 {detail.snapshot.reference.transcript.revision}）：{detail.snapshot.reference.transcript.text}</p>}
+      {!detail.is_simulated && <><p>模型：{detail.snapshot.adapter.model_id} · {detail.snapshot.adapter.model_revision}</p>
+        <details><summary>查看固定模型与配置摘要</summary><p className="snapshot-digest">模型：{detail.snapshot.adapter.model_fingerprint}</p><p className="snapshot-digest">配置：{detail.snapshot.adapter.config_fingerprint}</p></details></>}
       <p>语体：{detail.snapshot.confirmation.register} · 术语备注：{detail.snapshot.confirmation.terms || '无'}</p>
       {detail.snapshot.confirmation.paragraphs.map((paragraph, index) => <article key={paragraph.id}><h4>第 {index + 1} 段{detail.snapshot.paragraph_ids.includes(paragraph.id) ? '（本任务处理）' : ''}</h4>
         <p>原稿：{paragraph.original_text}</p><p>确认稿：{paragraph.draft_text}</p><p>读音备注：{paragraph.pronunciation_note || '无'}</p></article>)}

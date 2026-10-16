@@ -26,6 +26,7 @@ from .storage import connect, migrate
 from .tasks import task_router
 from .text_converters import ConverterRegistry, TextConverter
 from .text_documents import TextError, text_router
+from .transcripts import transcript_router
 from .worker_manager import WorkerManager
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -57,13 +58,18 @@ def create_app(
     text_converters: Sequence[TextConverter] = (),
     worker_enabled: bool = True,
     generation_adapters: Sequence[GenerationAdapter] | None = None,
+    model_config_path: Path | None = None,
 ) -> FastAPI:
     directory = Path(data_dir or os.environ.get("VOICE_DATA_DIR") or REPO_ROOT / "data")
     database = directory / "projects.sqlite3"
     if generation_adapters is not None and worker_enabled:
         raise ValueError("注入测试生成适配器时须关闭自动工作进程")
-    generation_registry = GenerationRegistry(generation_adapters)
-    worker = WorkerManager(directory, worker_enabled)
+    generation_registry = GenerationRegistry(
+        generation_adapters,
+        model_config_path=model_config_path,
+        runtime_directory=directory / "model-health",
+    )
+    worker = WorkerManager(directory, worker_enabled, model_config_path)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -185,6 +191,7 @@ def create_app(
 
     application.include_router(router(directory, database, require_storage))
     application.include_router(text_router(database, require_storage, registry))
+    application.include_router(transcript_router(database, directory, require_storage))
     application.include_router(
         task_router(database, directory, require_storage, generation_registry, worker.health)
     )

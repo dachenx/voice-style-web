@@ -5,6 +5,7 @@ import { messageOf, request, validateName, type Project } from './api';
 import ReferencePanel from './ReferencePanel';
 import TextPanel from './TextPanel';
 import { pendingDrafts } from './textDraftCache';
+import { transcriptDrafts } from './transcriptDraftCache';
 
 type Detail = { state: 'loading' } | { state: 'error'; message: string } |
   { state: 'ready'; project: Project };
@@ -84,7 +85,7 @@ function NameDialog({ editing, onDismiss, onSaved }: {
 export default function App() {
   useEffect(() => {
     const warn = (event: BeforeUnloadEvent) => {
-      if (pendingDrafts.size > 0) { event.preventDefault(); event.returnValue = ''; }
+      if (pendingDrafts.size > 0 || transcriptDrafts.size > 0) { event.preventDefault(); event.returnValue = ''; }
     };
     window.addEventListener('beforeunload', warn);
     return () => window.removeEventListener('beforeunload', warn);

@@ -18,6 +18,7 @@ from uuid import uuid4
 
 from .directory_lock import DirectoryLock
 from .generation import GenerationRegistry, TaskError
+from .local_model import LocalCosyVoiceAdapter
 from .references import timestamp
 from .storage import connect
 from .tasks import canonical, file_digest, task_from_row, validate_clip
@@ -28,10 +29,21 @@ logger = logging.getLogger(__name__)
 class WorkerSession:
     """Own the worker lock across recovery, claiming, generation and publication."""
 
-    def __init__(self, directory: Path, registry: GenerationRegistry | None = None) -> None:
+    def __init__(
+        self,
+        directory: Path,
+        registry: GenerationRegistry | None = None,
+        model_config_path: Path | None = None,
+    ) -> None:
         self.directory = directory
         self.database = directory / "projects.sqlite3"
-        self.registry = registry if registry is not None else GenerationRegistry()
+        self.registry = (
+            registry
+            if registry is not None
+            else GenerationRegistry(
+                model_config_path=model_config_path, runtime_directory=directory / "model-health"
+            )
+        )
         self.owner = str(uuid4())
         self.lock = DirectoryLock(directory, ".worker.lock")
         self.stop = threading.Event()
@@ -190,11 +202,20 @@ class WorkerSession:
             actual = validate_clip(path, clip["start_ms"], clip["end_ms"])
             if actual != reference["clip_sha256"]:
                 raise TaskError(409, "reference_changed", "任务参考文件已改变，未使用修改后的素材")
-            adapter = self.registry.require(snapshot["adapter"]["id"])
+            adapter = self.registry.for_snapshot(snapshot)
             if adapter.capability.model_dump(mode="json") != snapshot["adapter"]:
                 raise TaskError(409, "adapter_version_changed", "任务适配器版本已改变，原输入保留")
             self.progress(task_id, 0)
             destination = stage / "audio.wav"
+            if isinstance(adapter, LocalCosyVoiceAdapter):
+                assert self.lock.file is not None
+                adapter.bind_execution(
+                    path,
+                    self.lock.file.fileno(),
+                    task_id,
+                    self.stop.is_set,
+                    self.directory / "model-health",
+                )
             adapter.generate(
                 json.loads(canonical(snapshot)),
                 destination,
@@ -212,6 +233,8 @@ class WorkerSession:
                     (timestamp(), task_id),
                 )
             result = self.inspect_result(destination, snapshot, started, task_id)
+            if isinstance(adapter, LocalCosyVoiceAdapter):
+                result.update(adapter.last_result_metadata)
             if self.stop.is_set():
                 raise TaskError(503, "worker_interrupted", "工作进程停止，任务中断，请显式重试")
             target.parent.mkdir(exist_ok=True)
@@ -229,16 +252,18 @@ class WorkerSession:
                     raise TaskError(409, "task_state_changed", "任务运行状态已改变")
             published = True
         except Exception as exc:
-            logger.exception("模拟生成任务失败")
+            logger.exception("生成任务失败")
             if isinstance(exc, TaskError):
                 code, message = exc.code, exc.message
+                if code == "model_cleanup_failed":
+                    self.stop.set()
             elif isinstance(exc, (OSError, sqlite3.Error)):
                 code, message = (
                     "storage_unavailable",
                     "任务存储暂不可用，原输入已保留，请检查后重试",
                 )
             else:
-                code, message = "generation_failed", "模拟生成失败，原输入已保留，请重试"
+                code, message = "generation_failed", "生成失败，原输入已保留，请重试"
             self.fail(task_id, code, message)
         finally:
             if stage.exists():
@@ -269,12 +294,13 @@ class WorkerSession:
                     or len(audio.readframes(frames)) != frames * width * channels
                 ):
                     raise TaskError(
-                        502, "adapter_invalid_output", "模拟结果不是完整的 24k 单声道 PCM WAV"
+                        502, "adapter_invalid_output", "生成结果不是完整的 24k 单声道 PCM WAV"
                     )
         except (wave.Error, EOFError) as exc:
-            raise TaskError(502, "adapter_invalid_output", "模拟结果 WAV 无效") from exc
+            raise TaskError(502, "adapter_invalid_output", "生成结果 WAV 无效") from exc
+        prefix = "simulated" if snapshot.get("is_simulated", True) else "generated"
         return {
-            "filename": f"simulated-{task_id}.wav",
+            "filename": f"{prefix}-{task_id}.wav",
             "media_type": "audio/wav",
             "byte_size": path.stat().st_size,
             "sha256": file_digest(path),
@@ -292,8 +318,9 @@ def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--data-dir", type=Path, required=True)
     parser.add_argument("--watch-parent", action="store_true")
+    parser.add_argument("--model-config", type=Path)
     args = parser.parse_args()
-    session = WorkerSession(args.data_dir)
+    session = WorkerSession(args.data_dir, model_config_path=args.model_config)
 
     def stop(signum: int, frame: FrameType | None) -> None:
         session.stop.set()
