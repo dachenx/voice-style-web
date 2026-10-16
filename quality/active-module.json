@@ -1,16 +1,12 @@
 {
   "id": "M05",
-  "title": "M05 本机 CosyVoice3 真实模型接入",
-  "base_commit": "5cdc0b4ace3a11ad4c0cf644209575c696f2e044",
+  "title": "M05 首轮参考对比的决定与执行记录",
+  "base_commit": "dc16435572df01a475945425edd3b027e66687cb",
   "allowed_paths": [
-    "docs/",
-    "quality/active-module.json",
-    "backend/",
-    "frontend/",
-    "scripts/",
-    "tests/",
-    "项目说明.md",
-    ".gitignore"
+    "docs/项目方案与决策记录.md",
+    "docs/优化与问题修复记录.md",
+    "docs/reviews/M05-reference-comparison.json",
+    "quality/active-module.json"
   ],
   "acceptance": [
     "复用本机 CosyVoice3 独立环境和权重，通过受控子进程原速推理，不自动下载或云端上传",
@@ -47,5 +43,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M05.json"
+  "review": "docs/reviews/M05-reference-comparison.json"
 }
