@@ -149,6 +149,11 @@ export default function App() {
     window.location.hash = new URLSearchParams({ project: project.id }).toString();
   }
 
+  function contentChanged() {
+    writeEpoch.current += 1;
+    setRefresh((value) => value + 1);
+  }
+
   return <div className="app-shell">
     <aside className="sidebar" aria-label="工作空间导航">
       <a className="brand" href="#" aria-label="声作首页">
@@ -207,7 +212,7 @@ export default function App() {
                 <a key={project.id} className={`project-card ${project.id === selectedId ? 'selected' : ''}`}
                   href={`#project=${project.id}`} aria-current={project.id === selectedId ? 'true' : undefined}>
                   <div className="project-card-top"><div className="project-icon"><Folder size={21} /></div><span className="project-tag">项目已建立</span></div>
-                  <h3>{project.name}</h3><p>更新于 {dateOf(project.updated_at)}</p>
+                  <h3>{project.name}</h3><p>更新于 <time dateTime={project.updated_at}>{dateOf(project.updated_at)}</time></p>
                   <div className="project-card-bottom"><span><HardDrive size={13} />保存在本机</span><ArrowRight size={17} /></div>
                 </a>)}</div>}
           </section>
@@ -219,16 +224,16 @@ export default function App() {
                 <div className="detail-icon"><FolderOpen size={27} /></div>
                 <h2 className="detail-name">{detail.project.name}</h2>
                 <button className="text-button rename-button" onClick={() => setEditing({ mode: 'rename', project: detail.project })}><Pencil size={14} />重命名</button>
-                <dl className="project-meta"><div><dt>创建时间</dt><dd>{dateOf(detail.project.created_at)}</dd></div>
-                  <div><dt>最近更新</dt><dd>{dateOf(detail.project.updated_at)}</dd></div><div><dt>保存位置</dt><dd>本机</dd></div></dl>
+                <dl className="project-meta"><div><dt>创建时间</dt><dd><time dateTime={detail.project.created_at}>{dateOf(detail.project.created_at)}</time></dd></div>
+                  <div><dt>最近更新</dt><dd><time dateTime={detail.project.updated_at}>{dateOf(detail.project.updated_at)}</time></dd></div><div><dt>保存位置</dt><dd>本机</dd></div></dl>
                 <div className="next-step"><span className="step-number">下一步</span><h3>为项目加入参考声音</h3><p>在下方导入音频，试听并选取一段作为当前参考。原件和已保存的片段都会保留。</p></div>
-                <p className="saved-caption"><Check size={13} />已保存，刷新或重启后可继续</p>
+                <p className="saved-caption"><Check size={13} />项目信息已保存，刷新或重启后可继续</p>
               </>}
           </section>}
         </div>
         {selectedId && detail.state === 'ready' && <ReferencePanel key={`reference-${selectedId}`} project={detail.project}
-          onChanged={() => { writeEpoch.current += 1; setRefresh((value) => value + 1); }} />}
-        {selectedId && <TextPanel key={`text-${selectedId}`} projectId={selectedId} />}
+          onChanged={contentChanged} />}
+        {selectedId && <TextPanel key={`text-${selectedId}`} projectId={selectedId} onChanged={contentChanged} />}
         <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>项目管理已就绪 · 配音功能逐步开放</span></footer>
       </div>
     </main>

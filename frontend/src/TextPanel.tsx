@@ -16,7 +16,7 @@ function validation(doc: Content): string | null {
   return null;
 }
 
-export default function TextPanel({ projectId }: { projectId: string }) {
+export default function TextPanel({ projectId, onChanged }: { projectId: string; onChanged: () => void }) {
   const [doc, setDoc] = useState<TextDocument | null>(() => pendingDrafts.get(projectId)?.doc ?? null);
   const [saved, setSaved] = useState(() => pendingDrafts.get(projectId)?.saved ?? '');
   const [error, setError] = useState('');
@@ -25,11 +25,15 @@ export default function TextPanel({ projectId }: { projectId: string }) {
   const [ack, setAck] = useState(false);
   const [history, setHistory] = useState<Pick<Confirmation, 'id' | 'revision' | 'created_at'>[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
+  const [historyError, setHistoryError] = useState('');
+  const [snapshotError, setSnapshotError] = useState('');
   const [snapshot, setSnapshot] = useState<Confirmation | null>(null);
   const [converterMessage, setConverterMessage] = useState('尚未连接文本转换组件，当前可人工填写草稿。');
   const controller = useRef<AbortController | null>(null);
   const operation = useRef(0);
-  const historyOperation = useRef(0);
+  const historyOpened = useRef(false);
+  const historyListOperation = useRef(0);
+  const snapshotOperation = useRef(0);
   const base = `/projects/${projectId}/text`;
   const dirty = !!doc && JSON.stringify(contentOf(doc)) !== saved;
   const invalid = doc ? validation(doc) : null;
@@ -54,7 +58,7 @@ export default function TextPanel({ projectId }: { projectId: string }) {
     void request<{ converters: unknown[]; message: string }>('/text-converters', { signal: abort.signal }).then((value) => {
       if (!abort.signal.aborted) setConverterMessage(value.converters.length ? '已发现转换组件，本版请人工填写并核对草稿。' : value.message);
     }).catch(() => { /* The editor remains available without capability discovery. */ });
-    return () => { abort.abort(); operation.current += 1; };
+    return () => { abort.abort(); operation.current += 1; historyListOperation.current += 1; snapshotOperation.current += 1; };
   }, [base, projectId]);
 
   function edit(change: (value: TextDocument) => TextDocument) {
@@ -76,23 +80,41 @@ export default function TextPanel({ projectId }: { projectId: string }) {
       if (abort.signal.aborted || version !== operation.current) return;
       setDoc(value); setSaved(JSON.stringify(contentOf(value))); setAck(false);
       setNotice(kind === 'save' ? '文案已保存，请核对后人工确认。' : kind === 'confirm' ? '文案已确认。' : '已载入服务器版本。');
+      if (kind !== 'reload') onChanged();
+      // The confirmation is already committed; this independent read must not undo its success.
+      if (kind === 'confirm' && historyOpened.current) void refreshHistory(true);
     } catch (cause) {
       if (!abort.signal.aborted && version === operation.current) setError(`${messageOf(cause)} 本地输入已保留；如有版本冲突，可重新载入服务器版本。`);
     } finally { if (!abort.signal.aborted && version === operation.current) setBusy(false); }
   }
-  async function loadHistory(id?: string) {
+  async function refreshHistory(afterConfirmation = false) {
     const abort = controller.current;
     if (!abort) return;
-    const version = ++historyOperation.current;
+    historyOpened.current = true;
+    const version = ++historyListOperation.current;
+    setHistoryError('');
     try {
-      if (id) {
-        const value = await request<Confirmation>(`${base}/confirmations/${id}`, { signal: abort.signal });
-        if (!abort.signal.aborted && version === historyOperation.current) setSnapshot(value);
-      } else {
-        const value = await request<{ confirmations: typeof history }>(`${base}/confirmations`, { signal: abort.signal });
-        if (!abort.signal.aborted && version === historyOperation.current) { setHistory(value.confirmations); setSnapshot(null); setHistoryLoaded(true); }
+      const value = await request<{ confirmations: typeof history }>(`${base}/confirmations`, { signal: abort.signal });
+      if (!abort.signal.aborted && version === historyListOperation.current) {
+        setHistory(value.confirmations); setHistoryLoaded(true);
       }
-    } catch (cause) { if (!abort.signal.aborted && version === historyOperation.current) setError(messageOf(cause)); }
+    } catch (cause) {
+      if (!abort.signal.aborted && version === historyListOperation.current) {
+        setHistoryError(`${afterConfirmation ? '文案已确认，但确认历史刷新失败。' : '确认历史读取失败。'} ${messageOf(cause)} 请点击“查看确认历史”重试。`);
+      }
+    }
+  }
+  async function loadSnapshot(id: string) {
+    const abort = controller.current;
+    if (!abort) return;
+    const version = ++snapshotOperation.current;
+    setSnapshotError('');
+    try {
+      const value = await request<Confirmation>(`${base}/confirmations/${id}`, { signal: abort.signal });
+      if (!abort.signal.aborted && version === snapshotOperation.current) setSnapshot(value);
+    } catch (cause) {
+      if (!abort.signal.aborted && version === snapshotOperation.current) setSnapshotError(`确认快照读取失败。 ${messageOf(cause)} 请重新选择历史版本。`);
+    }
   }
   return <section className="reference-panel text-panel" aria-label="文案工作台" aria-busy={busy}>
     <div className="reference-heading"><div><span className="eyebrow">TEXT WORKSPACE</span><h2>文案与人工确认</h2><p>普通话原稿 → 武汉话草稿 → 人工确认。请核对原意、数字、专名与读音。</p></div></div>
@@ -123,9 +145,10 @@ export default function TextPanel({ projectId }: { projectId: string }) {
         <button className="button secondary" disabled={busy || dirty || !complete || !!invalid || !ack} onClick={() => void perform('confirm')}>确认当前文案</button>
       </div>
       <p role="status" aria-label="文案操作状态" className="reference-notice">{notice}</p>
-      <div className="text-history"><button className="text-button" onClick={() => void loadHistory()}>查看确认历史</button>
+      <div className="text-history"><button className="text-button" onClick={() => void refreshHistory()}>查看确认历史</button>
+        {(historyError || snapshotError) && <p className="error-box" role="alert" aria-label="确认历史状态">{[historyError, snapshotError].filter(Boolean).join(' ')}</p>}
         {historyLoaded && history.length === 0 && <p className="muted">暂无确认记录。</p>}
-        {history.map((item) => <button key={item.id} className="button secondary" onClick={() => void loadHistory(item.id)}>查看确认版本 {item.revision} · {new Date(item.created_at).toLocaleString('zh-CN')}</button>)}
+        {history.map((item) => <button key={item.id} className="button secondary" onClick={() => void loadSnapshot(item.id)}>查看确认版本 {item.revision} · {new Date(item.created_at).toLocaleString('zh-CN')}</button>)}
         {snapshot && <section className="text-snapshot" aria-label="确认快照"><h3>确认版本 {snapshot.revision}（只读）</h3><p>{snapshot.source_language} → {snapshot.target_language} · {snapshot.register}</p><p>术语备注：{snapshot.terms || '无'}</p>{snapshot.paragraphs.map((p, index) => <article key={p.id}><h4>第 {index + 1} 段</h4><p>原稿：{p.original_text}</p><p>草稿：{p.draft_text}</p><p>读音备注：{p.pronunciation_note || '无'}</p></article>)}{snapshot.conversion_warnings.map((w, i) => <p key={i}>{w}</p>)}</section>}
       </div>
     </>}
