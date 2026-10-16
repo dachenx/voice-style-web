@@ -233,7 +233,7 @@ export default function App() {
         </div>
         {selectedId && detail.state === 'ready' && <ReferencePanel key={`reference-${selectedId}`} project={detail.project}
           onChanged={contentChanged} />}
-        {selectedId && <TextPanel key={`text-${selectedId}`} projectId={selectedId} onChanged={contentChanged} />}
+        {selectedId && <TextPanel key={`text-${selectedId}`} projectId={selectedId} onChanged={contentChanged} referenceRefresh={refresh} />}
         <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>项目管理已就绪 · 配音功能逐步开放</span></footer>
       </div>
     </main>

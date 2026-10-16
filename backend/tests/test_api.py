@@ -99,7 +99,7 @@ def test_migrations_idempotent_and_tampering(tmp_path: Path) -> None:
     migrate(database)
     with connect(database) as connection:
         assert connection.execute("SELECT name FROM projects").fetchone()[0] == "keep"
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 3
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 4
         connection.execute("UPDATE schema_migrations SET checksum = 'changed'")
     with pytest.raises(MigrationError, match="变化"):
         migrate(database)

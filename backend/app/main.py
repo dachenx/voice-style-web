@@ -20,10 +20,13 @@ from starlette.exceptions import HTTPException
 
 from .audio import AudioError
 from .directory_lock import DirectoryLock
+from .generation import GenerationAdapter, GenerationRegistry, TaskError
 from .references import cleanup_uncommitted, router
 from .storage import connect, migrate
+from .tasks import task_router
 from .text_converters import ConverterRegistry, TextConverter
 from .text_documents import TextError, text_router
+from .worker_manager import WorkerManager
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
 logger = logging.getLogger(__name__)
@@ -49,10 +52,18 @@ def error(status: int, code: str, message: str) -> JSONResponse:
 
 
 def create_app(
-    data_dir: str | Path | None = None, *, text_converters: Sequence[TextConverter] = ()
+    data_dir: str | Path | None = None,
+    *,
+    text_converters: Sequence[TextConverter] = (),
+    worker_enabled: bool = True,
+    generation_adapters: Sequence[GenerationAdapter] | None = None,
 ) -> FastAPI:
     directory = Path(data_dir or os.environ.get("VOICE_DATA_DIR") or REPO_ROOT / "data")
     database = directory / "projects.sqlite3"
+    if generation_adapters is not None and worker_enabled:
+        raise ValueError("注入测试生成适配器时须关闭自动工作进程")
+    generation_registry = GenerationRegistry(generation_adapters)
+    worker = WorkerManager(directory, worker_enabled)
 
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
@@ -65,11 +76,13 @@ def create_app(
                 migrate(database)
                 cleanup_uncommitted(directory, database)
                 application.state.storage_ready = True
+                worker.start()
             except (OSError, sqlite3.Error):
                 # Serve an actionable, path-free error rather than exposing startup details.
                 logger.exception("本地存储初始化失败")
             yield
         finally:
+            worker.close()
             directory_lock.close()
 
     application = FastAPI(title="Voice Style Web", lifespan=lifespan)
@@ -105,6 +118,10 @@ def create_app(
 
     @application.exception_handler(TextError)
     async def text_error(request: Request, exc: TextError) -> JSONResponse:
+        return error(exc.status, exc.code, exc.message)
+
+    @application.exception_handler(TaskError)
+    async def task_error(request: Request, exc: TaskError) -> JSONResponse:
         return error(exc.status, exc.code, exc.message)
 
     def require_storage() -> None:
@@ -168,6 +185,9 @@ def create_app(
 
     application.include_router(router(directory, database, require_storage))
     application.include_router(text_router(database, require_storage, registry))
+    application.include_router(
+        task_router(database, directory, require_storage, generation_registry, worker.health)
+    )
 
     @application.api_route(
         "/api", methods=["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS"]
