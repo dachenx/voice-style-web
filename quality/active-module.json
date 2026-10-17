@@ -1,12 +1,12 @@
 {
   "id": "M06",
-  "title": "M06 后续声音候选公开研究",
-  "base_commit": "cea59ba8d85f83a30507db77a86884a5ccefdf66",
+  "title": "M06 Fish 单条重试回执",
+  "base_commit": "588924ef691f008f0257a47e3147e2ea03e3b940",
   "allowed_paths": [
     "quality/active-module.json",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M06-candidates.json"
+    "docs/reviews/M06-fishretry.json"
   ],
   "acceptance": [
     "新任务保存真实分段产物、输入依赖与来源；段文件和整篇校验后原子发布，失败保留旧版本与选用",
@@ -46,5 +46,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M06-candidates.json"
+  "review": "docs/reviews/M06-fishretry.json"
 }
