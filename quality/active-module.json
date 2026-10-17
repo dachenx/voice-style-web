@@ -1,11 +1,14 @@
 {
   "id": "M05",
-  "title": "M05 短样对比交付推送错误记录",
-  "base_commit": "53112977c9ed09c4c82dbb5954d62d70f0172ab5",
+  "title": "M05 按风险简化开发流程治理补充",
+  "base_commit": "1c605163ada85a75a3d4c213a582d41ac6730dca",
   "allowed_paths": [
+    "docs/协作规则.md",
+    "docs/分模块开发与验收.md",
+    "docs/团队协作与方案监督.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M05-short-style-push.json",
+    "docs/reviews/M05-workflow.json",
     "quality/active-module.json"
   ],
   "acceptance": [
@@ -18,7 +21,7 @@
     "真实输出经完整 WAV 校验后发布播放下载，按任务区分真实与模拟，不冒称声音已通过",
     "M04 旧排队、重试、成功结果和既有回归兼容；模型未配置不阻断模拟流程",
     "真实短段与较长输入的运行证据和武汉话、人物音色、韵律听审分开，缺样本不宣称完整验收",
-    "D018 逐批监督及 D020 全员本职与总验收，逐条记错；不做自动 ASR、云服务、M06 或 M07"
+    "D018 逐批监督及 D020 全员本职与总验收，按 D024 按影响记录错误；不做自动 ASR、云服务、M06 或 M07"
   ],
   "checks": [
     {
@@ -43,5 +46,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M05-short-style-push.json"
+  "review": "docs/reviews/M05-workflow.json"
 }
