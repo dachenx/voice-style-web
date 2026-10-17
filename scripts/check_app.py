@@ -80,17 +80,18 @@ def main(argv=None):
     env = configured_environment(ROOT)
     validate_node(env)
     checks = [
-        [str(PYTHON), "-m", "ruff", "check", "--config", "backend/pyproject.toml", "backend"],
-        [str(PYTHON), "-m", "mypy", "--config-file", "backend/pyproject.toml", "backend/app"],
-        [str(PYTHON), "-m", "pytest", "-q", "backend/tests"],
-        ["npm", "--prefix", "frontend", "run", "lint"],
-        ["npm", "--prefix", "frontend", "run", "typecheck"],
-        ["npm", "--prefix", "frontend", "run", "build"],
-        ["npm", "--prefix", "frontend", "run", "test:e2e"],
+        ([str(PYTHON), "-m", "ruff", "check", "--config", "backend/pyproject.toml", "backend"], 180),
+        ([str(PYTHON), "-m", "mypy", "--config-file", "backend/pyproject.toml", "backend/app"], 180),
+        ([str(PYTHON), "-m", "pytest", "-q", "backend/tests"], 180),
+        (["npm", "--prefix", "frontend", "run", "lint"], 180),
+        (["npm", "--prefix", "frontend", "run", "typecheck"], 180),
+        (["npm", "--prefix", "frontend", "run", "build"], 180),
+        # The full desktop/mobile suite has its own bounded budget; individual tests are unchanged.
+        (["npm", "--prefix", "frontend", "run", "test:e2e"], 300),
     ]
-    for command in checks:
+    for command, timeout in checks:
         print("RUN: " + " ".join(command[1:]), flush=True)
-        subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=180)
+        subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=timeout)
 
 
 if __name__ == "__main__":

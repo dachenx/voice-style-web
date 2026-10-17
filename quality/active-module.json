@@ -7,6 +7,8 @@
     "frontend/",
     "scripts/cosyvoice_bridge.py",
     "scripts/e2e_model_generation.py",
+    "scripts/check_app.py",
+    "tests/test_check_app.py",
     "docs/项目方案与决策记录.md",
     "docs/协作规则.md",
     "docs/优化与问题修复记录.md",
@@ -14,6 +16,7 @@
     "docs/全员业务审查与总验收报告.md",
     "docs/M06版本与局部返修.md",
     "docs/reviews/M06.json",
+    "docs/reviews/M06-ci.json",
     "项目说明.md",
     "quality/active-module.json"
   ],
@@ -51,5 +54,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M06.json"
+  "review": "docs/reviews/M06-ci.json"
 }

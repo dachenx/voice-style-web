@@ -93,10 +93,11 @@ class RuntimeTests(unittest.TestCase):
                 patch.object(check_app.subprocess, "run") as run:
             check_app.main([])
             self.assertEqual(run.call_count, 7)
+            self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list],
+                             [180, 180, 180, 180, 180, 180, 300])
             for call in run.call_args_list:
                 self.assertEqual(call.kwargs["env"], env)
                 self.assertTrue(call.kwargs["check"])
-                self.assertEqual(call.kwargs["timeout"], 180)
             for error in (subprocess.CalledProcessError(1, "check"),
                           subprocess.TimeoutExpired("check", 180)):
                 run.reset_mock()
@@ -104,6 +105,24 @@ class RuntimeTests(unittest.TestCase):
                 with self.assertRaises(type(error)):
                     check_app.main([])
                 self.assertEqual(run.call_count, 1)
+
+    def test_final_e2e_timeout_and_failure_still_block(self):
+        command = ["npm", "--prefix", "frontend", "run", "test:e2e"]
+        for error in (subprocess.TimeoutExpired(command, 300),
+                      subprocess.CalledProcessError(1, command)):
+            with self.subTest(error=type(error).__name__), \
+                    patch.object(check_app, "PYTHON", Path(sys.executable)), \
+                    patch.object(check_app, "configured_environment", return_value={"PATH": "fixture"}), \
+                    patch.object(check_app, "validate_node"), \
+                    patch.object(check_app.subprocess, "run", side_effect=[
+                        subprocess.CompletedProcess([], 0) for _ in range(6)
+                    ] + [error]) as run:
+                with self.assertRaises(type(error)):
+                    check_app.main([])
+                self.assertEqual(run.call_count, 7)
+                self.assertEqual(run.call_args.args[0], command)
+                self.assertEqual(run.call_args.kwargs["timeout"], 300)
+                self.assertTrue(run.call_args.kwargs["check"])
 
 
 if __name__ == "__main__":
