@@ -9,7 +9,8 @@
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
     "docs/reviews/M05-workflow.json",
-    "quality/active-module.json"
+    "quality/active-module.json",
+    "docs/reviews/M05-workflow-network.json"
   ],
   "acceptance": [
     "复用本机 CosyVoice3 独立环境和权重，通过受控子进程原速推理，不自动下载或云端上传",
@@ -46,5 +47,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M05-workflow.json"
+  "review": "docs/reviews/M05-workflow-network.json"
 }
