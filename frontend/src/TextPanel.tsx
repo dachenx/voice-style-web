@@ -140,7 +140,7 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
       </fieldset>
       {invalid && <p role="alert" className="invalid">{invalid}</p>}
       {doc.conversion_warnings.map((warning, index) => <p className="muted" key={index}>{warning}</p>)}
-      <div className="text-confirm"><p>{dirty ? '有未保存修改，请先保存，再核对确认。' : current ? '文案已准备好，可在下方提交模拟任务；真实语音模型尚未接入。' : doc.latest_confirmation ? '原确认已过时，请重新核对并确认当前文案。' : '尚未确认。请填写每段原稿与草稿，保存后核对。'}</p>
+      <div className="text-confirm"><p>{dirty ? '有未保存修改，请先保存，再核对确认。' : current ? '文案已准备好，可在下方选择生成组件并核对提交条件。' : doc.latest_confirmation ? '原确认已过时，请重新核对并确认当前文案。' : '尚未确认。请填写每段原稿与草稿，保存后核对。'}</p>
         <button className="button primary" disabled={busy || !dirty || !!invalid} onClick={() => void perform('save')}>保存文案</button>
         <label className="ack-label"><input type="checkbox" checked={ack} disabled={busy || dirty || !complete || !!invalid} onChange={(e) => setAck(e.target.checked)} />我已逐段核对原意、数字、专名及武汉话草稿</label>
         <button className="button secondary" disabled={busy || dirty || !complete || !!invalid || !ack} onClick={() => void perform('confirm')}>确认当前文案</button>

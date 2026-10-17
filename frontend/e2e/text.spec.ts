@@ -21,7 +21,7 @@ async function save(page: Page) {
 async function confirm(page: Page) {
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '确认当前文案', exact: true }).click();
-  await expect(page.getByText('文案已准备好，可在下方提交模拟任务；真实语音模型尚未接入。')).toBeVisible();
+  await expect(page.getByText('文案已准备好，可在下方选择生成组件并核对提交条件。')).toBeVisible();
 }
 
 test('保存刷新、人工确认、编辑失效及历史快照保持不变', async ({ page }) => {
@@ -36,7 +36,7 @@ test('保存刷新、人工确认、编辑失效及历史快照保持不变', as
   const initial = await (await page.request.get(`/api/projects/${id}/text`)).json() as TextDocument;
   await page.getByLabel('武汉话草稿', { exact: true }).fill('明天我们克汉口。');
   await expect(page.getByRole('checkbox')).not.toBeChecked();
-  await expect(page.getByText('文案已准备好，可在下方提交模拟任务；真实语音模型尚未接入。')).not.toBeVisible();
+  await expect(page.getByText('文案已准备好，可在下方选择生成组件并核对提交条件。')).not.toBeVisible();
   await expect(page.getByRole('button', { name: '确认当前文案', exact: true })).toBeDisabled();
   await save(page);
   await confirm(page);

@@ -12,25 +12,31 @@ logger = logging.getLogger(__name__)
 
 
 class WorkerManager:
-    def __init__(self, directory: Path, enabled: bool) -> None:
+    def __init__(
+        self, directory: Path, enabled: bool, model_config_path: Path | None = None
+    ) -> None:
         self.directory = directory
         self.enabled = enabled
         self.process: subprocess.Popen[bytes] | None = None
         self.failed = False
+        self.model_config_path = model_config_path
 
     def start(self) -> None:
         if not self.enabled:
             return
         try:
+            command = [
+                sys.executable,
+                "-m",
+                "backend.app.worker",
+                "--data-dir",
+                str(self.directory.resolve()),
+                "--watch-parent",
+            ]
+            if self.model_config_path is not None:
+                command += ["--model-config", str(self.model_config_path.resolve())]
             self.process = subprocess.Popen(
-                [
-                    sys.executable,
-                    "-m",
-                    "backend.app.worker",
-                    "--data-dir",
-                    str(self.directory.resolve()),
-                    "--watch-parent",
-                ],
+                command,
                 cwd=Path(__file__).resolve().parents[2],
                 stdin=subprocess.PIPE,
             )

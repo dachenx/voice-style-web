@@ -224,6 +224,11 @@ input::placeholder { color: #a3ad99; }
 .task-card progress { width: 100%; height: 6px; accent-color: #6b8955; }
 .task-result { border-top: 1px solid #dce5d1; margin-top: 15px; padding-top: 10px; }
 .task-result .text-button { margin-top: 12px; }
+.transcript-editor, .model-status { padding: 16px; margin: 16px 0; border: 1px solid #dce5d1; border-radius: 8px; background: #f7f9f2; }
+.transcript-editor h3 { font-size: 14px; margin: 0; }
+.transcript-editor textarea { width: 100%; resize: vertical; min-height: 90px; box-sizing: border-box; padding: 12px; font: inherit; font-size: 13px; color: #42573a; border: 1px solid #ccd9c0; border-radius: 6px; background: white; }
+.transcript-editor > p, .model-status > p { font-size: 12px; line-height: 1.8; overflow-wrap: anywhere; }
+.snapshot-digest { overflow-wrap: anywhere; font-size: 11px; }
 @media (max-width: 800px) { .task-list { grid-template-columns: minmax(0, 1fr); } }
 @media (max-width: 500px) { .task-panel .reference-heading { flex-wrap: wrap; } .task-card { padding: 13px; } }
 @media (max-width: 1100px) { .reference-workspace { grid-template-columns: 175px minmax(0, 1fr); gap: 18px; } .reference-editor { padding-left: 18px; } }

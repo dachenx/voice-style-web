@@ -16,6 +16,7 @@ from starlette.exceptions import HTTPException
 
 from .audio import SAMPLE_RATE
 from .generation import GenerationRegistry, RetryInput, TaskError, TaskInput
+from .local_model import LocalCosyVoiceAdapter
 from .references import available, require_project, require_reference, timestamp
 from .storage import connect
 from .text_documents import conflict, load_document
@@ -57,7 +58,7 @@ def task_from_row(row: sqlite3.Row, *, detailed: bool = True) -> dict[str, Any]:
     task["mode"] = snapshot["mode"]
     task["paragraph_id"] = snapshot["paragraph_ids"][0] if snapshot["mode"] == "preview" else None
     task["adapter"] = snapshot["adapter"]
-    task["is_simulated"] = True
+    task["is_simulated"] = snapshot.get("is_simulated", True)
     task["snapshot_sha256"] = hashlib.sha256(canonical(snapshot).encode("utf-8")).hexdigest()
     code, message = task.pop("error_code"), task.pop("error_message")
     task["error"] = {"code": code, "message": message} if code else None
@@ -132,9 +133,16 @@ def enqueue(
     payload: TaskInput,
     registry: GenerationRegistry,
 ) -> tuple[dict[str, Any], bool]:
-    fingerprint = canonical(
-        {"operation": "submit", **payload.model_dump(mode="json", exclude={"request_id"})}
-    )
+    request_content = payload.model_dump(mode="json", exclude={"request_id"})
+    # Preserve canonical M04 request fingerprints, including full-mode paragraph_id=null.
+    for key in (
+        "expected_transcript_revision",
+        "expected_adapter_version",
+        "expected_config_fingerprint",
+    ):
+        if request_content[key] is None:
+            request_content.pop(key)
+    fingerprint = canonical({"operation": "submit", **request_content})
     with connect(database) as connection:
         connection.execute("BEGIN IMMEDIATE")
         require_project(connection, project_id)
@@ -166,6 +174,32 @@ def enqueue(
         path = directory / "references" / reference["id"] / "clips" / f"{clip['id']}.wav"
         digest = validate_clip(path, clip["start_ms"], clip["end_ms"])
         adapter = registry.require(payload.adapter_id)
+        transcript = None
+        if not adapter.capability.is_simulated:
+            from .transcripts import transcript_value
+
+            if not isinstance(adapter, LocalCosyVoiceAdapter):
+                raise TaskError(503, "adapter_unavailable", "真实适配器未接入本机配置协议")
+            configuration = adapter.require_configuration()
+            if (
+                payload.expected_adapter_version != adapter.capability.version
+                or payload.expected_config_fingerprint != configuration["config_fingerprint"]
+            ):
+                raise TaskError(
+                    409, "model_configuration_conflict", "模型版本或配置已改变，请刷新组件信息核对"
+                )
+            if clip["end_ms"] - clip["start_ms"] > adapter.capability.reference_max_duration_ms:
+                raise TaskError(422, "invalid_reference_duration", "本适配器参考片段不能超过30秒")
+            transcript = transcript_value(connection, clip["id"], digest)
+            if (
+                payload.expected_transcript_revision is None
+                or payload.expected_transcript_revision != transcript["revision"]
+            ):
+                raise TaskError(409, "transcript_conflict", "参考原话版本不一致，请保存并重新核对")
+            if transcript["revision"] == 0 or not transcript["text"].strip():
+                raise TaskError(
+                    422, "transcript_required", "请填写并保存当前参考片段实际说出的准确原话"
+                )
         if payload.mode not in adapter.capability.modes:
             raise TaskError(422, "unsupported_mode", "该模拟适配器不支持此模式")
         ids = [paragraph["id"] for paragraph in confirmation["paragraphs"]]
@@ -180,8 +214,10 @@ def enqueue(
             "parameters": {},
             "mode": payload.mode,
             "paragraph_ids": ids,
-            "is_simulated": True,
+            "is_simulated": adapter.capability.is_simulated,
         }
+        if transcript is not None:
+            snapshot["reference"]["transcript"] = transcript
         task = insert_task(connection, project_id, snapshot)
         remember_request(connection, project_id, str(payload.request_id), fingerprint, task["id"])
         return task, True
@@ -247,8 +283,13 @@ def task_router(
     def adapters() -> dict[str, Any]:
         return {
             "adapters": registry.capabilities(),
-            "message": "仅生成合成测试音，不朗读文案、不复刻参考声音。建议先短段测试，再全文排队。",
+            "message": "模拟组件用于流程验证；真实组件需本机配置及准确参考原话。"
+            "配置检查不代表模型已加载或声音达标。",
         }
+
+    @routes.get("/api/generation-adapters/{adapter_id}/health")
+    def adapter_health(adapter_id: str) -> dict[str, Any]:
+        return registry.health(adapter_id)
 
     @routes.get("/api/worker/health")
     def health_route() -> dict[str, Any]:

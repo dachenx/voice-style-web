@@ -1,0 +1,26 @@
+{
+  "module": "M05",
+  "reviewer": "process_guardian（临时独立只读治理监督）",
+  "verdict": "PASS",
+  "digest": "56d5541e7ea73a1cf234b47f1e23bdcd88aaae6899bbd968fcc5f67e9f640fc0",
+  "evidence": [
+    "原 D024 治理审核及 E097 补充审核意见继续适用，本次实际重算新摘要，不沿用旧摘要。",
+    "实际核对配置差异：仅新增允许路径 docs/reviews/M05-workflow-network.json，并将 review 指向该文件；原模块、基线、验收项、检查命令与超时均未改变。",
+    "原 docs/reviews/M05-workflow.json 无差异，历史审核保留；新补充审核命名与目录符合既有约束。",
+    "实际差异仅 E097 七行及上述配置调整，未改变生产代码、模型、测试、Hook 或全局配置。",
+    "实际读取推送失败日志，只有 HTTP2 framing layer 错误，无 pre-push 执行证据；E097 保留未知根因及远端、CI 待核边界。",
+    "chief_acceptance 本人直接确认 E097 补充无待决问题，原治理总验收及四职能意见继续适用。"
+  ],
+  "findings": [],
+  "limitations": [
+    "仅审核治理与记录，不代签原固定 M05 职能或声音验收。",
+    "未重跑全套；后续正常提交、推送门禁、远端 SHA 及当前提交 CI 仍须实际核验。",
+    "HTTP/1.1 重试尚待执行，网络根因未知，不预写发布成功。",
+    "本轮临时治理角色结束后不恢复原常驻团队职责。"
+  ],
+  "previous_review": "docs/reviews/M05-workflow.json",
+  "chief_acceptance_supplement": {
+    "status": "无待决问题",
+    "conclusion": "已只读核对E097，原治理总验收及四职能结论继续适用；区分传输错误与功能检查、未知根因与待验证状态；单次HTTP/1.1不改产品全局门禁，无新业务取舍。远端SHA及CI待核。"
+  }
+}

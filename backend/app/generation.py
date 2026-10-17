@@ -1,4 +1,4 @@
-"""Explicitly simulated generation protocol; no speech model is installed."""
+"""Replaceable simulated and local speech generation contracts."""
 
 import math
 import struct
@@ -31,6 +31,20 @@ class AdapterCapability(StrictModel):
     supported_parameters: tuple[str, ...] = ()
 
 
+class RealAdapterCapability(AdapterCapability):
+    requires_transcript: bool = True
+    model_id: str
+    model_revision: str
+    model_fingerprint: str | None
+    config_fingerprint: str | None
+    environment_fingerprint: str | None = None
+    reference_max_duration_ms: int = 30000
+    reference_min_sample_rate: int = 16000
+    max_text_tokens: int = 80
+    max_reference_transcript_characters: int = 2000
+    limit_note: str = "80 token 为本适配器首版操作限制，参考源码分段阈值；不是已测声音上限"
+
+
 class TaskInput(StrictModel):
     request_id: UUID
     expected_revision: Revision
@@ -40,12 +54,15 @@ class TaskInput(StrictModel):
     mode: Literal["preview", "full"]
     paragraph_id: UUID | None
     parameters: dict[str, Any]
+    expected_transcript_revision: Revision | None = None
+    expected_adapter_version: str | None = Field(default=None, min_length=1, max_length=100)
+    expected_config_fingerprint: str | None = Field(default=None, pattern=r"^[0-9a-f]{64}$")
 
     @field_validator("parameters")
     @classmethod
     def empty_parameters(cls, value: dict[str, Any]) -> dict[str, Any]:
         if value:
-            raise ValueError("模拟适配器仅支持空参数，不支持语速或情绪设置")
+            raise ValueError("当前适配器仅支持空参数，不支持语速或情绪设置")
         return value
 
     @model_validator(mode="after")
@@ -98,13 +115,27 @@ class SimulatedToneAdapter:
 
 
 class GenerationRegistry:
-    def __init__(self, adapters: Sequence[GenerationAdapter] | None = None) -> None:
+    def __init__(
+        self,
+        adapters: Sequence[GenerationAdapter] | None = None,
+        *,
+        model_config_path: Path | None = None,
+        runtime_directory: Path | None = None,
+    ) -> None:
+        from .local_model import LocalCosyVoiceAdapter
+
         self.adapters: dict[str, GenerationAdapter] = {}
-        for adapter in adapters if adapters is not None else [SimulatedToneAdapter()]:
+        selected: Sequence[GenerationAdapter] = (
+            adapters
+            if adapters is not None
+            else [
+                SimulatedToneAdapter(),
+                LocalCosyVoiceAdapter(model_config_path, runtime_directory=runtime_directory),
+            ]
+        )
+        for adapter in selected:
             if adapter.capability.id in self.adapters:
                 raise ValueError("生成适配器 ID 重复")
-            if not adapter.capability.is_simulated:
-                raise ValueError("M04 只允许模拟测试适配器")
             self.adapters[adapter.capability.id] = adapter
 
     def capabilities(self) -> list[dict[str, Any]]:
@@ -113,5 +144,29 @@ class GenerationRegistry:
     def require(self, adapter_id: str) -> GenerationAdapter:
         adapter = self.adapters.get(adapter_id)
         if adapter is None:
-            raise TaskError(503, "adapter_unavailable", "模拟生成适配器不可用")
+            raise TaskError(503, "adapter_unavailable", "生成适配器不可用")
         return adapter
+
+    def for_snapshot(self, snapshot: dict[str, Any]) -> GenerationAdapter:
+        from .local_model import LocalCosyVoiceAdapter
+
+        adapter = self.require(snapshot["adapter"]["id"])
+        if isinstance(adapter, LocalCosyVoiceAdapter):
+            return adapter.frozen(snapshot["adapter"]["config_fingerprint"])
+        return adapter
+
+    def health(self, adapter_id: str) -> dict[str, Any]:
+        from .local_model import LocalCosyVoiceAdapter
+
+        adapter = self.require(adapter_id)
+        if isinstance(adapter, LocalCosyVoiceAdapter):
+            return adapter.health()
+        return {
+            "adapter_id": adapter_id,
+            "configured": True,
+            "configuration_valid": True,
+            "execution_available": True,
+            "model_loaded": False,
+            "state": "ready",
+            "error": None,
+        }
