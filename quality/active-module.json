@@ -1,12 +1,14 @@
 {
   "id": "M06",
-  "title": "M06 Fish 单条重试回执",
-  "base_commit": "588924ef691f008f0257a47e3147e2ea03e3b940",
+  "title": "M06 免费模型与淘汰清理规则",
+  "base_commit": "5a9cb6295362f90d3d1fc755e940f77315a841a1",
   "allowed_paths": [
     "quality/active-module.json",
+    "docs/协作规则.md",
+    "项目说明.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M06-fishretry.json"
+    "docs/reviews/M06-freepolicy.json"
   ],
   "acceptance": [
     "新任务保存真实分段产物、输入依赖与来源；段文件和整篇校验后原子发布，失败保留旧版本与选用",
@@ -46,5 +48,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M06-fishretry.json"
+  "review": "docs/reviews/M06-freepolicy.json"
 }
