@@ -1,23 +1,18 @@
 {
   "id": "M06",
-  "title": "M06 段落版本、依赖与局部返修",
-  "base_commit": "cbecfff732858e022b66fc6489689a27f8fe0d39",
+  "title": "M06 主线收尾与验收修复",
+  "base_commit": "42c7a0212ff634187cf35331dfcc7aa951e95c75",
   "allowed_paths": [
-    "backend/",
-    "frontend/",
-    "scripts/cosyvoice_bridge.py",
-    "scripts/e2e_model_generation.py",
-    "scripts/check_app.py",
-    "tests/test_check_app.py",
-    "docs/项目方案与决策记录.md",
+    "frontend/e2e/versions.spec.ts",
+    "frontend/playwright.config.ts",
     "docs/协作规则.md",
-    "docs/优化与问题修复记录.md",
+    "docs/团队协作与方案监督.md",
     "docs/分模块开发与验收.md",
-    "docs/全员业务审查与总验收报告.md",
-    "docs/M06版本与局部返修.md",
-    "docs/reviews/M06.json",
-    "docs/reviews/M06-ci.json",
     "项目说明.md",
+    "docs/项目方案与决策记录.md",
+    "docs/优化与问题修复记录.md",
+    "docs/全员业务审查与总验收报告.md",
+    "docs/reviews/M06-main-closeout.json",
     "quality/active-module.json"
   ],
   "acceptance": [
@@ -29,7 +24,10 @@
     "前后段按当前顺序播放邻段选用与当前候选，明确缺项、过时和模拟；不做M07拼接导出",
     "迁移幂等、崩溃恢复、失败不发布半套，桌面和窄屏真实API回归；保留原全部检查",
     "按D018逐批监督、D020模块全员本职与总验收、D024串行冻结检查；A仅相对基线，声音未达标，不训练或新增声音参数",
-    "按主聊天正式确认的D026同步开放模型候选方向，本轮不新增外部服务、费用或私人素材上传"
+    "按主聊天正式确认的D026同步开放模型候选方向，本轮不新增外部服务、费用或私人素材上传",
+    "本批修正E106测试初始读取前置，保留稳定刷新失败的禁用、恢复、跨项目隔离及历史断言",
+    "本批隔离默认浏览器测试产物，保留trace、零重试和服务不复用；端口及单一写入要求保持",
+    "按D028初版前仅严格本地检查、独立审核及正常Git提交，暂停GitHub推送、PR、远端合并及CI操作"
   ],
   "checks": [
     {
@@ -54,5 +52,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M06-ci.json"
+  "review": "docs/reviews/M06-main-closeout.json"
 }

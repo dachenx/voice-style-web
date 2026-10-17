@@ -31,6 +31,8 @@ async function read(page: Page, id: string) {
 }
 async function open(page: Page, id: string) {
   await page.goto(`/#project=${id}`);
+  await expect(page.locator('article[data-task-id]')).toHaveCount(1);
+  await expect(page.getByRole('button', { name: '提交模拟短段任务', exact: true })).toBeEnabled();
   await expect(paragraph(page, 1).getByRole('button', { name: '选用此版本', exact: true })).toBeEnabled();
 }
 async function select(page: Page, index: number, stale = false) {
@@ -117,8 +119,28 @@ test('前后段按选用顺序实际播放，缺项与文件播放失败明确�
 });
 
 test('版本读取失败可恢复，项目切换隔离迟到列表，删除后保留历史', async ({ page }) => {
-  const id = await seed(page); const next = await seed(page); await open(page, id);
+  const id = await seed(page); const next = await seed(page);
+  let releaseTasks!: () => void;
+  const taskGate = new Promise<void>((resolve) => { releaseTasks = resolve; });
+  await page.route(`**/api/projects/${id}/tasks`, async (route) => {
+    const response = await route.fetch(); await taskGate; await route.fulfill({ response });
+  }, { times: 1 });
+  await page.goto(`/#project=${id}`);
+  const choose = paragraph(page, 1).getByRole('button', { name: '选用此版本', exact: true });
+  await expect(choose).toBeEnabled();
+  await expect(page.locator('article[data-task-id]')).toHaveCount(0);
   const url = `**/api/projects/${id}/paragraph-versions?*`;
+  await page.route(url, (route) => route.abort());
+  releaseTasks();
+  await expect(page.locator('article[data-task-id]')).toHaveCount(1);
+  // Initial task data changes the refresh stamp; the older catalogue cannot remain actionable.
+  await expect(panel(page).getByRole('alert')).toContainText('版本读取失败');
+  await expect(choose).toHaveCount(0);
+  await page.unroute(url);
+  await panel(page).getByRole('button', { name: '刷新版本', exact: true }).click();
+  await expect(page.getByRole('button', { name: '提交模拟短段任务', exact: true })).toBeEnabled();
+  await expect(choose).toBeEnabled();
+  // With all initial inputs loaded, failure of an explicit refresh must retain and disable the candidate.
   await page.route(url, (route) => route.abort());
   await panel(page).getByRole('button', { name: '刷新版本', exact: true }).click();
   await expect(panel(page).getByRole('alert')).toContainText('版本读取失败');
