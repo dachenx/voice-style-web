@@ -1,0 +1,1 @@
+"""Local voice project service."""
