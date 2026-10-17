@@ -77,7 +77,7 @@ async function confirm(page: Page) {
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '确认当前文案', exact: true }).click();
   await expect(operationStatus(page)).toContainText('文案已确认');
-  await expect(workbench(page)).toContainText('文案已准备好；语音生成将在后续模块开放。');
+  await expect(workbench(page)).toContainText('文案已准备好，可在下方提交模拟任务；真实语音模型尚未接入。');
 }
 
 async function updatedView(page: Page, value: Project) {

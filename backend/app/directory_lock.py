@@ -6,8 +6,8 @@ from typing import BinaryIO
 
 
 class DirectoryLock:
-    def __init__(self, directory: Path) -> None:
-        self.path = directory / ".service.lock"
+    def __init__(self, directory: Path, name: str = ".service.lock") -> None:
+        self.path = directory / name
         self.file: BinaryIO | None = None
 
     def acquire(self) -> None:

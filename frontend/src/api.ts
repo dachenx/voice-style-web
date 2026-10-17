@@ -5,6 +5,13 @@ export type Project = {
   updated_at: string;
 };
 
+export class ApiError extends Error {
+  constructor(message: string, public readonly status: number, public readonly code: string) {
+    super(message);
+    this.name = 'ApiError';
+  }
+}
+
 export async function request<T>(path: string, options: RequestInit = {}, timeoutMs = 10000): Promise<T> {
   let response: Response;
   try {
@@ -19,7 +26,7 @@ export async function request<T>(path: string, options: RequestInit = {}, timeou
   }
   if (!response.ok) {
     const body = await response.json().catch(() => null);
-    throw new Error(body?.error?.message ?? '操作未完成，请稍后重试。');
+    throw new ApiError(body?.error?.message ?? '操作未完成，请稍后重试。', response.status, body?.error?.code ?? 'http_error');
   }
   return response.json() as Promise<T>;
 }

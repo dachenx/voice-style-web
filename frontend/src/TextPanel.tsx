@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { messageOf, request } from './api';
 import { pendingDrafts } from './textDraftCache';
+import TaskPanel from './TaskPanel';
 
 export type Paragraph = { id: string; original_text: string; draft_text: string; pronunciation_note: string };
 type Content = { source_language: string; target_language: string; register: string; terms: string; paragraphs: Paragraph[] };
@@ -16,7 +17,7 @@ function validation(doc: Content): string | null {
   return null;
 }
 
-export default function TextPanel({ projectId, onChanged }: { projectId: string; onChanged: () => void }) {
+export default function TextPanel({ projectId, onChanged, referenceRefresh }: { projectId: string; onChanged: () => void; referenceRefresh: number }) {
   const [doc, setDoc] = useState<TextDocument | null>(() => pendingDrafts.get(projectId)?.doc ?? null);
   const [saved, setSaved] = useState(() => pendingDrafts.get(projectId)?.saved ?? '');
   const [error, setError] = useState('');
@@ -116,7 +117,7 @@ export default function TextPanel({ projectId, onChanged }: { projectId: string;
       if (!abort.signal.aborted && version === snapshotOperation.current) setSnapshotError(`确认快照读取失败。 ${messageOf(cause)} 请重新选择历史版本。`);
     }
   }
-  return <section className="reference-panel text-panel" aria-label="文案工作台" aria-busy={busy}>
+  return <><section className="reference-panel text-panel" aria-label="文案工作台" aria-busy={busy}>
     <div className="reference-heading"><div><span className="eyebrow">TEXT WORKSPACE</span><h2>文案与人工确认</h2><p>普通话原稿 → 武汉话草稿 → 人工确认。请核对原意、数字、专名与读音。</p></div></div>
     {error && <p className="error-box" role="alert">{error}</p>}
     <div className="text-actions"><button className="text-button" disabled={busy} onClick={() => void perform('reload')}>重新载入服务器版本</button></div>
@@ -139,7 +140,7 @@ export default function TextPanel({ projectId, onChanged }: { projectId: string;
       </fieldset>
       {invalid && <p role="alert" className="invalid">{invalid}</p>}
       {doc.conversion_warnings.map((warning, index) => <p className="muted" key={index}>{warning}</p>)}
-      <div className="text-confirm"><p>{dirty ? '有未保存修改，请先保存，再核对确认。' : current ? '文案已准备好；语音生成将在后续模块开放。' : doc.latest_confirmation ? '原确认已过时，请重新核对并确认当前文案。' : '尚未确认。请填写每段原稿与草稿，保存后核对。'}</p>
+      <div className="text-confirm"><p>{dirty ? '有未保存修改，请先保存，再核对确认。' : current ? '文案已准备好，可在下方提交模拟任务；真实语音模型尚未接入。' : doc.latest_confirmation ? '原确认已过时，请重新核对并确认当前文案。' : '尚未确认。请填写每段原稿与草稿，保存后核对。'}</p>
         <button className="button primary" disabled={busy || !dirty || !!invalid} onClick={() => void perform('save')}>保存文案</button>
         <label className="ack-label"><input type="checkbox" checked={ack} disabled={busy || dirty || !complete || !!invalid} onChange={(e) => setAck(e.target.checked)} />我已逐段核对原意、数字、专名及武汉话草稿</label>
         <button className="button secondary" disabled={busy || dirty || !complete || !!invalid || !ack} onClick={() => void perform('confirm')}>确认当前文案</button>
@@ -152,5 +153,5 @@ export default function TextPanel({ projectId, onChanged }: { projectId: string;
         {snapshot && <section className="text-snapshot" aria-label="确认快照"><h3>确认版本 {snapshot.revision}（只读）</h3><p>{snapshot.source_language} → {snapshot.target_language} · {snapshot.register}</p><p>术语备注：{snapshot.terms || '无'}</p>{snapshot.paragraphs.map((p, index) => <article key={p.id}><h4>第 {index + 1} 段</h4><p>原稿：{p.original_text}</p><p>草稿：{p.draft_text}</p><p>读音备注：{p.pronunciation_note || '无'}</p></article>)}{snapshot.conversion_warnings.map((w, i) => <p key={i}>{w}</p>)}</section>}
       </div>
     </>}
-  </section>;
+  </section><TaskPanel projectId={projectId} doc={doc} dirty={dirty} textBusy={busy} textError={!!error} referenceRefresh={referenceRefresh} onChanged={onChanged} /></>;
 }
