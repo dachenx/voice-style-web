@@ -12,6 +12,8 @@ from pydantic import Field, field_validator, model_validator
 
 from .text_models import Revision, StrictModel
 
+PARAGRAPH_OUTPUT_CONTRACT = "paragraphs-v1"
+
 
 class TaskError(Exception):
     def __init__(self, status: int, code: str, message: str) -> None:
@@ -104,14 +106,24 @@ class SimulatedToneAdapter:
             output.setnchannels(1)
             output.setsampwidth(2)
             output.setframerate(sample_rate)
-            for index, _ in enumerate(snapshot["paragraph_ids"], start=1):
+            for index, paragraph_id in enumerate(snapshot["paragraph_ids"], start=1):
                 frequency = 330 + (index % 5) * 55
                 samples = bytearray()
                 for position in range(sample_rate // 4):
                     sample = int(4000 * math.sin(2 * math.pi * frequency * position / sample_rate))
                     samples.extend(struct.pack("<h", sample))
                 output.writeframes(samples)
+                if snapshot.get("output_contract") == PARAGRAPH_OUTPUT_CONTRACT:
+                    parts = destination.parent / "segments"
+                    parts.mkdir(exist_ok=True)
+                    with wave.open(str(parts / f"{UUID(paragraph_id)}.wav"), "wb") as part:
+                        part.setparams((1, 2, sample_rate, 0, "NONE", "not compressed"))
+                        part.writeframes(samples)
                 progress(index)
+        if snapshot.get("output_contract") == PARAGRAPH_OUTPUT_CONTRACT:
+            from .segment_outputs import write_manifest
+
+            write_manifest(destination.parent, snapshot["paragraph_ids"])
 
 
 class GenerationRegistry:

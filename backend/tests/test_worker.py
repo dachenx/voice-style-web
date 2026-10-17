@@ -127,10 +127,9 @@ def test_adapter_cannot_mutate_recorded_snapshot_or_result_input_digest(tmp_path
     registry = GenerationRegistry()
 
     def mutate(snapshot: dict[str, Any], destination: Path, progress: Any) -> None:
+        SimulatedToneAdapter().generate(snapshot, destination, progress)
         snapshot["confirmation"]["register"] = "adapter mutation"
         snapshot["reference"]["filename"] = "mutated.wav"
-        destination.write_bytes(wav_bytes(250))
-        progress(1)
 
     with (
         WorkerSession(tmp_path, registry) as worker,

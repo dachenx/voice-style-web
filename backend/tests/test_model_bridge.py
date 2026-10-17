@@ -31,7 +31,7 @@ RUNNER = Path(__file__).with_name("bridge_runner.py")
 
 
 def setup_real(
-    tmp_path: Path, timeout: float = 10, load_timeout: float | None = None
+    tmp_path: Path, timeout: float = 10, load_timeout: float | None = None, *, full: bool = False
 ) -> tuple[Any, ...]:
     location, config = fixture_model(tmp_path / "model")
     if load_timeout is not None:
@@ -75,6 +75,8 @@ def setup_real(
         expected_adapter_version="1",
         expected_config_fingerprint=config["config_fingerprint"],
     )
+    if full:
+        payload.update(mode="full", paragraph_id=None)
     response = client.post(f"/api/projects/{project}/tasks", json=payload)
     assert response.status_code == 201, response.text
     return (
@@ -437,4 +439,137 @@ def test_unverified_cleanup_stops_worker_and_preserves_next_queued_task(tmp_path
             assert replacement.run_once()
         assert_result(directory, task_state(db, project, response.json()["id"]), task)
     finally:
+        client.__exit__(None, None, None)
+
+
+def test_real_bridge_allows_short_nonempty_segment_and_keeps_whole_pcm(tmp_path: Path) -> None:
+    client, directory, db, project, task, registry, control, _, _ = setup_real(tmp_path, full=True)
+    try:
+        control.write_text("short")
+        with WorkerSession(directory, registry) as worker:
+            assert worker.run_once()
+        finished = task_state(db, project, task["id"])
+        assert_result(directory, finished, task)
+        assert [part["frame_count"] for part in finished["result"]["segments"]] == [24, 6000]
+        assert finished["result"]["frame_count"] == 6024
+    finally:
+        client.__exit__(None, None, None)
+
+
+@pytest.mark.parametrize("fault", [None, "empty-second", "fail-second"])
+def test_production_bridge_multichunk_paragraph_boundaries(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, fault: str | None
+) -> None:
+    import struct
+
+    from backend.app.tasks import file_digest
+
+    client, directory, _, _, task, _, _, config, _ = setup_real(tmp_path, full=True)
+    old_cwd = Path.cwd()
+    try:
+        ref = task["snapshot"]["reference"]
+        ref_path = directory / "references" / ref["id"] / "clips" / f"{ref['clip']['id']}.wav"
+        request = tmp_path / "request.json"
+        request.write_text(
+            json.dumps(
+                {
+                    "configuration": config,
+                    "snapshot": task["snapshot"],
+                    "task_id": task["id"],
+                    "reference_path": str(ref_path),
+                }
+            )
+        )
+        calls: list[Any] = []
+        chunks = [[11, 12], [13, 14, 15], [21, 22, 23, 24]]
+
+        class Samples:
+            def __init__(self, values: list[int]) -> None:
+                self.values = values
+
+            def detach(self) -> Any:
+                return self
+
+            def cpu(self) -> Any:
+                return self
+
+            def reshape(self, _: int) -> Any:
+                return self
+
+            def numel(self) -> int:
+                return len(self.values)
+
+            def clamp(self, *_: Any) -> Any:
+                return self
+
+            def __mul__(self, _: Any) -> Any:
+                return self
+
+            def to(self, _: Any) -> Any:
+                return self
+
+            def numpy(self) -> Any:
+                return self
+
+            def astype(self, _: Any) -> Any:
+                return self
+
+            def tobytes(self) -> bytes:
+                return struct.pack("<" + "h" * len(self.values), *self.values)
+
+        class Engine:
+            sample_rate = 24000
+            frontend = SimpleNamespace(
+                tokenizer=SimpleNamespace(encode=lambda *a, **k: [1]), allowed_special=set()
+            )
+
+            def inference_zero_shot(self, *args: Any, **kwargs: Any) -> Any:
+                calls.append((args, kwargs))
+                if len(calls) == 2 and fault == "fail-second":
+                    raise RuntimeError("fixture second paragraph failed")
+                selected = chunks[:2] if len(calls) == 1 else ([] if fault else chunks[2:])
+                for values in selected:
+                    yield {"tts_speech": Samples(values)}
+
+        torch = ModuleType("torch")
+        torch.set_num_threads = lambda _: None  # type: ignore[attr-defined]
+        torch.isfinite = lambda _: SimpleNamespace(all=lambda: True)  # type: ignore[attr-defined]
+        torch.int16 = "int16"  # type: ignore[attr-defined]
+        cosyvoice = ModuleType("cosyvoice.cli.cosyvoice")
+        cosyvoice.AutoModel = lambda **kwargs: Engine()  # type: ignore[attr-defined]
+        monkeypatch.setitem(sys.modules, "torch", torch)
+        monkeypatch.setitem(sys.modules, "cosyvoice.cli.cosyvoice", cosyvoice)
+        args = SimpleNamespace(
+            input=request,
+            output=tmp_path / "native.wav",
+            progress=tmp_path / "progress.json",
+            status=tmp_path / "status.json",
+        )
+        if fault:
+            with pytest.raises((BridgeFailure, RuntimeError)):
+                run(args)
+            assert not args.output.with_suffix(".meta.json").exists()
+            assert json.loads(args.progress.read_text())["completed_paragraphs"] == 1
+            return
+        run(args)
+        meta = json.loads(args.output.with_suffix(".meta.json").read_text())
+        parts = meta["segments"]
+        assert [p["paragraph_id"] for p in parts] == task["snapshot"]["paragraph_ids"]
+        assert [p["frame_count"] for p in parts] == [5, 4]
+        pcm = b""
+        for index, part in enumerate(parts):
+            path = tmp_path / "native-segments" / f"{part['paragraph_id']}.wav"
+            assert file_digest(path) == part["sha256"]
+            with wave.open(str(path)) as audio:
+                raw = audio.readframes(audio.getnframes())
+            assert raw == Samples([11, 12, 13, 14, 15] if index == 0 else chunks[2]).tobytes()
+            pcm += raw
+        with wave.open(str(args.output)) as audio:
+            assert audio.readframes(audio.getnframes()) == pcm
+        assert [c[0][0] for c in calls] == [
+            p["draft_text"] for p in task["snapshot"]["confirmation"]["paragraphs"]
+        ]
+        assert all(c[1] == {"stream": False, "text_frontend": False, "speed": 1.0} for c in calls)
+    finally:
+        os.chdir(old_cwd)
         client.__exit__(None, None, None)

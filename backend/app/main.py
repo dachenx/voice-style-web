@@ -27,6 +27,7 @@ from .tasks import task_router
 from .text_converters import ConverterRegistry, TextConverter
 from .text_documents import TextError, text_router
 from .transcripts import transcript_router
+from .versions import version_router
 from .worker_manager import WorkerManager
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -192,6 +193,9 @@ def create_app(
     application.include_router(router(directory, database, require_storage))
     application.include_router(text_router(database, require_storage, registry))
     application.include_router(transcript_router(database, directory, require_storage))
+    application.include_router(
+        version_router(database, directory, require_storage, generation_registry)
+    )
     application.include_router(
         task_router(database, directory, require_storage, generation_registry, worker.health)
     )

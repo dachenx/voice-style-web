@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import { ApiError, messageOf, request } from './api';
 import type { Clip, ReferenceAudio } from './ReferencePanel';
 import type { TextDocument } from './TextPanel';
+import VersionPanel from './VersionPanel';
 import ReferenceTranscriptEditor, { type TranscriptReadiness } from './ReferenceTranscript';
 import type { Adapter, AdapterHealth, Task, TaskDetail, TaskInput, WorkerHealth } from './taskTypes';
 
@@ -175,11 +176,11 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       if (!abort.signal.aborted) setBusy(false);
     }
   }
-  function submit(mode: 'preview' | 'full') {
+  function submit(mode: 'preview' | 'full', explicitParagraphId?: string) {
     if (blocked || pending || busyRef.current || !doc || !confirmed || !selected || !adapter || !selectedParagraph) return;
     void send({ kind: 'create', input: { request_id: crypto.randomUUID(), expected_revision: doc.revision,
       expected_confirmation_id: confirmed.id, expected_clip_id: selected.clip.id, adapter_id: adapter.id,
-      mode, paragraph_id: mode === 'preview' ? selectedParagraph.id : null, parameters: {},
+      mode, paragraph_id: mode === 'preview' ? explicitParagraphId ?? selectedParagraph.id : null, parameters: {},
       ...(real ? { expected_transcript_revision: transcript!.value!.revision, expected_adapter_version: adapter.version,
         expected_config_fingerprint: adapter.config_fingerprint } : {}) } });
   }
@@ -250,6 +251,10 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       <button className="button secondary" disabled={busy} onClick={() => void send(pending)}>核对并重试上次提交</button></div>}
     {actionError && <p role="alert" aria-label="任务操作错误" className="error-box">{actionError}</p>}
     <p role="status" aria-label="任务操作状态" className="reference-notice">{notice}</p>
+    <VersionPanel key={projectId} projectId={projectId} adapterId={adapterId} dirty={dirty}
+      refreshStamp={`${doc?.revision}:${doc?.latest_confirmation?.id}:${referenceRefresh}:${inputRefresh}:${transcript?.value?.revision}:${tasks.filter((task) => task.state === 'succeeded').map((task) => task.id).join(',')}`}
+      blocked={blocked || (pending ? '请先核对上次提交结果。' : busy ? '请等待任务操作完成。' : '')}
+      onGenerate={(id) => submit('preview', id)} onChanged={onChanged} />
     <div className="subsection-title"><h3>任务记录</h3><button className="text-button" onClick={() => setPollTick((tick) => tick + 1)}>刷新任务</button></div>
     <p className="audio-hint">单任务工作进程 · {worker?.state === 'running' ? '正在处理任务' : worker?.state === 'idle' ? '已就绪' : '状态待核对'}。关闭页面不停止已保存的队列。</p>
     {worker?.error && <p role="alert" className="error-box">工作进程不可用：{worker.error.message} 队列记录仍保留，请重启本地服务后核对。</p>}

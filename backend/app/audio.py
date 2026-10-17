@@ -29,7 +29,9 @@ def ffmpeg_executable() -> str:
         ) from exc
 
 
-def decode(source: Path, destination: Path, suffix: str) -> int:
+def decode(
+    source: Path, destination: Path, suffix: str, *, min_frames: int = SAMPLE_RATE // 10
+) -> int:
     demuxer = FORMATS[suffix]
     command = [
         ffmpeg_executable(),
@@ -97,8 +99,8 @@ def decode(source: Path, destination: Path, suffix: str) -> int:
                 raise AudioError("音频试听副本格式无效")
     except (wave.Error, EOFError) as exc:
         raise AudioError("音频解码结果无效") from exc
-    if not SAMPLE_RATE // 10 <= frames <= SAMPLE_RATE * 600:
-        raise AudioError("音频时长须为 0.1–600 秒")
+    if not min_frames <= frames <= SAMPLE_RATE * 600:
+        raise AudioError("音频时长不符合当前输入要求（最长 600 秒）")
     # Floor to milliseconds so a legal end_ms never exceeds the decoded samples.
     return frames * 1000 // SAMPLE_RATE
 
