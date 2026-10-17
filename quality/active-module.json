@@ -1,24 +1,22 @@
 {
   "id": "M07",
-  "title": "M07 初版软件收尾与模型实验交接",
-  "base_commit": "c6d4d2d57d6982ef3fb9719f620ac5cecf6ae7e0",
+  "title": "M07 启动体验补充",
+  "base_commit": "958b2200d2ca8f44e8f48bb39c09240645dca2c4",
   "allowed_paths": [
     "quality/active-module.json",
-    "项目说明.md",
+    "scripts/dev.py",
+    "backend/tests/test_dev_startup.py",
     "docs/快速使用指南.md",
-    "docs/模型实验与接入交接.md",
-    "docs/初版软件交付清单.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/分模块开发与验收.md",
-    "docs/reviews/M07-closeout.json"
+    "docs/reviews/M07-startup.json"
   ],
   "acceptance": [
-    "修正用户入口旧状态并说明M07实际已交付，保留历史验收",
-    "六步软件使用、导出、备份恢复及未实现边界准确",
-    "模型实验与正式接入区分，接口限制与共享数据保护明确",
-    "初版单次整合回归真实日志及回执留存，不声称声音通过",
-    "仅本地轻量提交，不重复全套或上传"
+    "开发启动复用本机Node配置，构建模式不依赖Node",
+    "预检依赖和端口，不停止非自有服务",
+    "健康与页面就绪后提示地址，可选打开浏览器",
+    "启动失败超时退出并回收自有进程，保留数据",
+    "必要定向验证与真实独立补审，仅本地提交"
   ],
   "checks": [
     {
@@ -43,5 +41,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-closeout.json"
+  "review": "docs/reviews/M07-startup.json"
 }
