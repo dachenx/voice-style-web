@@ -1,28 +1,24 @@
 {
   "id": "M07",
-  "title": "整篇拼接导出与恢复",
-  "base_commit": "1dc2c1c7bc794d74e2cd275acc4f927e0f2a312f",
+  "title": "M07 初版软件收尾与模型实验交接",
+  "base_commit": "c6d4d2d57d6982ef3fb9719f620ac5cecf6ae7e0",
   "allowed_paths": [
     "quality/active-module.json",
-    "backend/app/exports.py",
-    "backend/app/main.py",
-    "backend/tests/test_exports.py",
-    "frontend/src/ExportPanel.tsx",
-    "frontend/src/VersionPanel.tsx",
-    "frontend/e2e/exports.spec.ts",
+    "项目说明.md",
+    "docs/快速使用指南.md",
+    "docs/模型实验与接入交接.md",
+    "docs/初版软件交付清单.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
     "docs/分模块开发与验收.md",
-    "docs/M07验收报告.md",
-    "docs/reviews/M07.json",
-    "backend/app/versions.py"
+    "docs/reviews/M07-closeout.json"
   ],
   "acceptance": [
-    "冻结已确认稿段序与选用版本及来源，缺失阻止，过时或未知需明确确认",
-    "支持单段和整篇WAV，段间新增停顿0至2000ms，保持原音频不裁剪不变速不自动增益",
-    "幂等提交、原子发布、重启保留历史，损坏明确提示不覆盖旧文件",
-    "后端专项与真实浏览器端到端验证，四职能审查及独立总验收",
-    "按D029轻量本地提交，不上传，不开展声音实验"
+    "修正用户入口旧状态并说明M07实际已交付，保留历史验收",
+    "六步软件使用、导出、备份恢复及未实现边界准确",
+    "模型实验与正式接入区分，接口限制与共享数据保护明确",
+    "初版单次整合回归真实日志及回执留存，不声称声音通过",
+    "仅本地轻量提交，不重复全套或上传"
   ],
   "checks": [
     {
@@ -47,5 +43,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07.json"
+  "review": "docs/reviews/M07-closeout.json"
 }
