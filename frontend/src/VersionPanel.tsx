@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { messageOf, request } from './api';
+import ExportPanel from './ExportPanel';
 
 export type AudioVersion = {
   id: string; paragraph_id: string; task_id: string; number: number; ordinal: number;
@@ -143,6 +144,7 @@ export default function VersionPanel({ projectId, adapterId, refreshStamp, dirty
           <button className="text-button" disabled={!ready || !version.available} onClick={() => setCandidateId(version.id)}>前后段试听</button></div>
       </article>)}
     </section>)}
+    {catalog && <ExportPanel key={projectId} projectId={projectId} catalog={catalog} disabled={!ready || busy || dirty} />}
     {candidate && catalog && ready && <NeighborPlayer key={`${catalog.comparison_token}:${catalog.paragraphs.map((p) => p.selection?.revision ?? 0).join(',')}:${candidate.id}`}
       projectId={projectId} paragraphs={catalog.paragraphs} candidate={candidate} />}
     {!!catalog?.archived_versions.length && <details><summary>已删除段落的历史（{catalog.archived_versions.length} 个版本）</summary>

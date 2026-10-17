@@ -247,6 +247,8 @@ def catalogue(
     project_id: str,
     registry: GenerationRegistry,
     adapter_id: str,
+    *,
+    verify_files: bool = True,
 ) -> dict[str, Any]:
     document, snapshot, readiness = current_inputs(
         connection,
@@ -279,7 +281,8 @@ def catalogue(
             comparison="stale" if reasons else "matching" if known else "unknown",
         )
         try:
-            require_audio(directory, version)
+            if verify_files:
+                require_audio(directory, version)
             version["available"] = True
         except (OSError, TaskError, ValueError, KeyError):
             version["available"] = False

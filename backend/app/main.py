@@ -20,6 +20,7 @@ from starlette.exceptions import HTTPException
 
 from .audio import AudioError
 from .directory_lock import DirectoryLock
+from .exports import cleanup_exports, export_router
 from .generation import GenerationAdapter, GenerationRegistry, TaskError
 from .references import cleanup_uncommitted, router
 from .storage import connect, migrate
@@ -82,6 +83,7 @@ def create_app(
                 directory_lock.acquire()
                 migrate(database)
                 cleanup_uncommitted(directory, database)
+                cleanup_exports(directory)
                 application.state.storage_ready = True
                 worker.start()
             except (OSError, sqlite3.Error):
@@ -190,6 +192,9 @@ def create_app(
         assert row is not None
         return dict(row)
 
+    application.include_router(
+        export_router(database, directory, require_storage, generation_registry)
+    )
     application.include_router(router(directory, database, require_storage))
     application.include_router(text_router(database, require_storage, registry))
     application.include_router(transcript_router(database, directory, require_storage))
