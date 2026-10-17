@@ -132,6 +132,28 @@ input::placeholder { color: #a3ad99; }
 @media (max-width: 700px) { .app-shell { flex-direction: column; } .sidebar { width: 100%; height: auto; position: static; padding: 17px 22px; border-right: 0; border-bottom: 1px solid #e3e9db; flex-direction: row; justify-content: space-between; align-items: center; } .brand { font-size: 20px; padding: 0; } .brand-mark { width: 36px; height: 36px; border-radius: 10px; } .brand small { font-size: 7px; } .sidebar-caption, .sidebar-bottom { display: none; } .nav-item { padding: 10px 12px; font-size: 12px; gap: 7px; } .nav-item span { display: none; } .topbar { height: 51px; padding: 0 23px; } .breadcrumb, .connection { font-size: 10px; } .page-content { padding: 29px 22px 22px; } h1 { font-size: 27px; } .eyebrow { font-size: 8px; letter-spacing: 1.2px; } .page-heading { gap: 10px; margin-bottom: 23px; } .subtitle { font-size: 10px; } .page-heading .button { min-height: 36px; padding: 9px 12px; font-size: 11px; gap: 5px; } .intro-card { min-height: 204px; padding: 22px; } .intro-copy h2 { font-size: 22px; } .intro-copy p { max-width: 230px; } .sound-art { position: absolute; right: -85px; opacity: .35; transform: scale(.65); } .intro-copy { max-width: 100%; } .intro-copy p { color: #708160; } .intro-card::after { content: ''; position: absolute; inset: 0; background: linear-gradient(90deg, #eaf0e3 20%, transparent 95%); } .intro-copy { z-index: 2; } .empty-state { min-height: 260px; } .page-footer { font-size: 9px; } .project-cards { grid-template-columns: 1fr; } }
 @media (prefers-reduced-motion: reduce) { *, *::before, *::after { animation-duration: .01ms !important; transition: none !important; } }
 .reference-panel { margin-top: 30px; padding: 26px; background: #fcfdf9; border: 1px solid #dee5d6; border-radius: 13px; }
+.text-fields { border: 0; padding: 0; margin: 20px 0; min-width: 0; }
+.text-pair { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 18px; }
+.text-panel label { display: block; font-size: 12px; line-height: 1.8; min-width: 0; }
+.text-panel textarea { width: 100%; resize: vertical; min-height: 64px; padding: 12px; border: 1px solid #cad5bf; border-radius: 6px; font: inherit; color: #324c37; background: white; }
+.text-panel input, .text-panel textarea { margin-top: 6px; }
+.text-panel small, .text-language { font-size: 10px; color: #7d8d71; }
+.text-language { display: flex; gap: 15px; flex-wrap: wrap; }
+.text-actions { display: flex; gap: 13px; flex-wrap: wrap; margin: 12px 0; }
+.converter-note { padding: 16px; background: #f0f4e9; border-radius: 8px; margin: 20px 0; }
+.converter-note p, .text-confirm p { font-size: 12px; line-height: 1.9; margin: 10px 0; }
+.text-paragraph { padding: 18px; border: 1px solid #dee5d6; border-radius: 9px; margin-bottom: 16px; }
+.text-paragraph-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
+.text-paragraph h3, .text-snapshot h3 { font-size: 14px; }
+.pronunciation-label { margin-top: 15px; }
+.text-confirm { border-top: 1px solid #dee5d6; padding-top: 12px; }
+.text-panel .ack-label { display: flex; gap: 8px; align-items: flex-start; margin: 18px 0; }
+.ack-label input { width: 16px; flex-shrink: 0; margin-top: 4px; }
+.text-history { display: flex; gap: 12px; flex-wrap: wrap; align-items: center; }
+.text-snapshot { flex-basis: 100%; padding: 20px; background: #f0f4e9; border-radius: 8px; overflow-wrap: anywhere; }
+.text-snapshot p { white-space: pre-wrap; font-size: 12px; line-height: 1.9; margin: 9px 0; }
+.text-snapshot article { border-top: 1px solid #d9e1d0; padding-top: 12px; margin-top: 16px; }
+@media (max-width: 650px) { .text-pair { grid-template-columns: 1fr; } .text-paragraph { padding: 12px; } .text-paragraph-heading { flex-wrap: wrap; } .text-history .button { white-space: normal; text-align: left; } }
 .reference-heading { display: flex; justify-content: space-between; gap: 20px; align-items: center; margin-bottom: 22px; }
 .reference-heading h2 { font-size: 25px; font-weight: 550; margin-top: 8px; }
 .reference-heading p { color: #7f8979; font-size: 12px; line-height: 1.8; margin-top: 8px; overflow-wrap: anywhere; }

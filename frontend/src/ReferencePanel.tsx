@@ -166,6 +166,7 @@ export default function ReferencePanel({ project, onChanged }: { project: Projec
     <div className="reference-heading"><div><span className="eyebrow">01 / REFERENCE AUDIO</span><h2>参考声音<span className="heading-dot">.</span></h2>
       <p>为「{project.name}」挑选一段声音，保留原件，随时重新选取。</p></div>
       <button className="text-button" disabled={loading || !!busy} onClick={reload}><RefreshCw size={14} />刷新素材</button></div>
+    <p className="muted">多个窗口时以最后成功选择为准，请刷新素材核对。</p>
     <form className="upload-form" onSubmit={upload}>
       <div className="upload-symbol"><Upload size={22} /></div>
       <div className="upload-field"><label htmlFor="reference-file">导入参考音频</label><p>WAV、MP3、M4A、FLAC、OGG · 最大 50 MiB · 0.1–600 秒</p>
