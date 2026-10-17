@@ -6,3 +6,4 @@ httpx
 pytest
 ruff
 mypy
+imageio-ffmpeg

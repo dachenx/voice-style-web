@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowDown, ArrowRight, AudioLines, Check, ChevronRight, CircleAlert, Folder,
   FolderOpen, HardDrive, Layers3, LoaderCircle, Pencil, Plus, RefreshCw, X } from 'lucide-react';
 import { messageOf, request, validateName, type Project } from './api';
+import ReferencePanel from './ReferencePanel';
 
 type Detail = { state: 'loading' } | { state: 'error'; message: string } |
   { state: 'ready'; project: Project };
@@ -182,7 +183,7 @@ export default function App() {
 
         <div className="section-heading"><div><h2>全部项目</h2><span className="count">{projects.length}</span></div>
           <span className="sort-note"><ArrowDown size={13} />最近更新</span></div>
-        <p className="save-notice" role="status">{notice}</p>
+        <p className="save-notice" role="status" aria-label="项目操作状态">{notice}</p>
         {listError && <div className="error-box list-error" role="alert"><CircleAlert size={19} /><span>{listError}</span>
           <button className="text-button" onClick={retry} disabled={loading}><RefreshCw size={14} />重试</button></div>}
 
@@ -211,11 +212,13 @@ export default function App() {
                 <button className="text-button rename-button" onClick={() => setEditing({ mode: 'rename', project: detail.project })}><Pencil size={14} />重命名</button>
                 <dl className="project-meta"><div><dt>创建时间</dt><dd>{dateOf(detail.project.created_at)}</dd></div>
                   <div><dt>最近更新</dt><dd>{dateOf(detail.project.updated_at)}</dd></div><div><dt>保存位置</dt><dd>本机</dd></div></dl>
-                <div className="next-step"><span className="step-number">下一步</span><h3>为项目加入参考声音</h3><p>音频上传将在下一模块开放。当前可以创建、查看和重命名项目。</p></div>
+                <div className="next-step"><span className="step-number">下一步</span><h3>为项目加入参考声音</h3><p>在下方导入音频，试听并选取一段作为当前参考。原件和已保存的片段都会保留。</p></div>
                 <p className="saved-caption"><Check size={13} />已保存，刷新或重启后可继续</p>
               </>}
           </section>}
         </div>
+        {selectedId && detail.state === 'ready' && <ReferencePanel key={selectedId} project={detail.project}
+          onChanged={() => { writeEpoch.current += 1; setRefresh((value) => value + 1); }} />}
         <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>项目管理已就绪 · 配音功能逐步开放</span></footer>
       </div>
     </main>

@@ -10,6 +10,12 @@ import re
 import subprocess
 import sys
 
+REQUIRED_DOCUMENTS = (
+    "AGENTS.md", "README.md", "项目说明.md", "docs/协作规则.md",
+    "docs/项目方案与决策记录.md", "docs/优化与问题修复记录.md",
+    "docs/分模块开发与验收.md", "docs/团队协作与方案监督.md",
+)
+
 
 class GateError(Exception):
     pass
@@ -57,8 +63,10 @@ def module(root):
         raise GateError("模块 ID 格式错误")
     if not result.get("allowed_paths") or not result.get("acceptance") or not result.get("checks"):
         raise GateError("必须声明模块范围、验收标准和功能检查命令")
-    if result.get("review") != "docs/reviews/" + result["id"] + ".json":
-        raise GateError("审查路径必须与当前模块对应")
+    review = result.get("review")
+    pattern = r"docs/reviews/" + re.escape(result["id"]) + r"(?:-[a-z0-9]+(?:-[a-z0-9]+)*)?\.json"
+    if not isinstance(review, str) or not re.fullmatch(pattern, review):
+        raise GateError("审查路径必须与当前模块对应，可添加小写补充审查名称")
     return result
 
 
@@ -85,7 +93,7 @@ def base_files(root, config):
 
 def quick(root, config, entries):
     errors = []
-    for required in ("AGENTS.md", "docs/DECISIONS.md", "docs/OPTIMIZATIONS.md"):
+    for required in REQUIRED_DOCUMENTS:
         if required not in entries:
             errors.append("缺少记录文件：" + required)
     baseline = base_files(root, config)

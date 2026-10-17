@@ -112,11 +112,11 @@ test('保存失败保留输入，重试后才显示成功', async ({ page }) => 
   await page.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('暂时无法连接');
   await expect(page.getByLabel('项目名称', { exact: true })).toHaveValue('网络失败后重试');
-  await expect(page.getByRole('status')).not.toContainText('已创建');
+  await expect(page.getByRole('status', { name: '项目操作状态' })).not.toContainText('已创建');
   await page.unroute('**/api/projects');
   await page.getByRole('button', { name: '创建项目', exact: true }).click();
   await expect(page.getByRole('dialog')).not.toBeVisible();
-  await expect(page.getByRole('status')).toContainText('已创建');
+  await expect(page.getByRole('status', { name: '项目操作状态' })).toContainText('已创建');
 });
 
 test('列表失败显示错误与重试，恢复后读取真实数据', async ({ page }) => {

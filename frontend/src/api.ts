@@ -5,13 +5,13 @@ export type Project = {
   updated_at: string;
 };
 
-export async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+export async function request<T>(path: string, options: RequestInit = {}, timeoutMs = 10000): Promise<T> {
   let response: Response;
   try {
     response = await fetch(`/api${path}`, {
       ...options,
       headers: { 'Content-Type': 'application/json', ...options.headers },
-      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(10000)]) : AbortSignal.timeout(10000),
+      signal: options.signal ? AbortSignal.any([options.signal, AbortSignal.timeout(timeoutMs)]) : AbortSignal.timeout(timeoutMs),
     });
   } catch (error) {
     if (options.signal?.aborted) throw error;

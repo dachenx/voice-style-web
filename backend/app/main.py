@@ -1,4 +1,4 @@
-"""M01 HTTP API and optional built frontend."""
+"""Project and reference audio HTTP API with optional built frontend."""
 
 import logging
 import os
@@ -18,6 +18,9 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, field_validator
 from starlette.exceptions import HTTPException
 
+from .audio import AudioError
+from .directory_lock import DirectoryLock
+from .references import cleanup_uncommitted, router
 from .storage import connect, migrate
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -50,14 +53,20 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
     @asynccontextmanager
     async def lifespan(application: FastAPI) -> AsyncIterator[None]:
         application.state.storage_ready = False
+        directory_lock = DirectoryLock(directory)
         try:
-            directory.mkdir(parents=True, exist_ok=True)
-            migrate(database)
-            application.state.storage_ready = True
-        except (OSError, sqlite3.Error):
-            # Serve an actionable, path-free error rather than exposing startup details.
-            logger.exception("本地存储初始化失败")
-        yield
+            try:
+                directory.mkdir(parents=True, exist_ok=True)
+                directory_lock.acquire()
+                migrate(database)
+                cleanup_uncommitted(directory, database)
+                application.state.storage_ready = True
+            except (OSError, sqlite3.Error):
+                # Serve an actionable, path-free error rather than exposing startup details.
+                logger.exception("本地存储初始化失败")
+            yield
+        finally:
+            directory_lock.close()
 
     application = FastAPI(title="Voice Style Web", lifespan=lifespan)
 
@@ -66,7 +75,7 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         return error(
             422,
             "invalid_input",
-            "输入无效：项目名称须为 1–80 个字符且不含控制字符，项目 ID 须为有效 UUID",
+            "输入无效：请检查名称、UUID 和整数毫秒起止时间",
         )
 
     @application.exception_handler(HTTPException)
@@ -76,9 +85,18 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
         return error(exc.status_code, "http_error", "请求无法处理")
 
     @application.exception_handler(sqlite3.Error)
-    async def storage_error(request: Request, exc: sqlite3.Error) -> JSONResponse:
+    @application.exception_handler(OSError)
+    async def storage_error(request: Request, exc: Exception) -> JSONResponse:
         logger.error("本地存储请求失败", exc_info=(type(exc), exc, exc.__traceback__))
-        return error(503, "storage_unavailable", "本地存储暂不可用，请检查存储目录权限后重启服务")
+        return error(
+            503,
+            "storage_unavailable",
+            "本地存储暂不可用，请检查目录权限或是否已有服务使用该目录，再重启服务",
+        )
+
+    @application.exception_handler(AudioError)
+    async def audio_error(request: Request, exc: AudioError) -> JSONResponse:
+        return error(exc.status, exc.code, exc.message)
 
     def require_storage() -> None:
         if not application.state.storage_ready:
@@ -138,6 +156,8 @@ def create_app(data_dir: str | Path | None = None) -> FastAPI:
             ).fetchone()
         assert row is not None
         return dict(row)
+
+    application.include_router(router(directory, database, require_storage))
 
     @application.api_route(
         "/api", methods=["GET", "POST", "PATCH", "PUT", "DELETE", "HEAD", "OPTIONS"]

@@ -59,7 +59,7 @@ def main():
     args = parser.parse_args()
     python = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
     if not python.exists():
-        sys.exit("缺少 .venv，请先按 README 安装依赖。")
+        sys.exit("缺少 .venv，请先按《项目说明.md》安装依赖。")
     if args.built and not (ROOT / "frontend/dist/index.html").is_file():
         sys.exit("请先运行 npm --prefix frontend run build。")
     if not args.built and not shutil.which("npm"):
