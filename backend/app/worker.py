@@ -17,9 +17,10 @@ from typing import Any
 from uuid import uuid4
 
 from .directory_lock import DirectoryLock
-from .generation import GenerationRegistry, TaskError
+from .generation import PARAGRAPH_OUTPUT_CONTRACT, GenerationRegistry, TaskError
 from .local_model import LocalCosyVoiceAdapter
 from .references import timestamp
+from .segment_outputs import collect_segments
 from .storage import connect
 from .tasks import canonical, file_digest, task_from_row, validate_clip
 
@@ -196,6 +197,10 @@ class WorkerSession:
         try:
             stage.mkdir(parents=True)
             snapshot = task["snapshot"]
+            if snapshot.get("output_contract") not in (None, PARAGRAPH_OUTPUT_CONTRACT):
+                raise TaskError(
+                    409, "output_contract_unsupported", "任务输出协议不受支持，原输入保留"
+                )
             reference = snapshot["reference"]
             clip = reference["clip"]
             path = self.directory / "references" / reference["id"] / "clips" / f"{clip['id']}.wav"
@@ -235,6 +240,8 @@ class WorkerSession:
             result = self.inspect_result(destination, snapshot, started, task_id)
             if isinstance(adapter, LocalCosyVoiceAdapter):
                 result.update(adapter.last_result_metadata)
+            if snapshot.get("output_contract") == PARAGRAPH_OUTPUT_CONTRACT:
+                result["segments"] = collect_segments(stage, snapshot)
             if self.stop.is_set():
                 raise TaskError(503, "worker_interrupted", "工作进程停止，任务中断，请显式重试")
             target.parent.mkdir(exist_ok=True)

@@ -51,10 +51,27 @@ def main() -> int:
     if behavior == "fail":
         write_json(args.output.with_suffix(".error.json"), {"code": "model_inference_failed"})
         return 1
+    segments = []
+    segmented = snapshot.get("output_contract") == "paragraphs-v1"
+    if segmented:
+        (args.output.parent / "native-segments").mkdir()
     with wave.open(str(args.output), "wb") as output:
         output.setparams((1, 2, 24000, 0, "NONE", "not compressed"))
-        for index, _ in enumerate(snapshot["paragraph_ids"], start=1):
-            output.writeframes(b"\0\0" * 6000)
+        for index, identifier in enumerate(snapshot["paragraph_ids"], start=1):
+            frames = 24 if behavior == "short" and index == 1 else 6000
+            output.writeframes(b"\0\0" * frames)
+            if segmented:
+                path = args.output.parent / "native-segments" / f"{identifier}.wav"
+                with wave.open(str(path), "wb") as part:
+                    part.setparams((1, 2, 24000, 0, "NONE", "not compressed"))
+                    part.writeframes(b"\0\0" * frames)
+                segments.append(
+                    {
+                        "paragraph_id": identifier,
+                        "sha256": file_digest(path),
+                        "frame_count": frames,
+                    }
+                )
             write_json(args.progress, {"completed_paragraphs": index})
     write_json(
         args.output.with_suffix(".meta.json"),
@@ -66,6 +83,7 @@ def main() -> int:
             "environment_fingerprint": digest_json(config["environment"]),
             "native_sample_rate": 24000,
             "model_loaded_at": status["loaded_at"],
+            **({"segments": segments} if segmented else {}),
         },
     )
     return 0

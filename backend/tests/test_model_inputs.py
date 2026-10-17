@@ -346,6 +346,7 @@ def test_m04_schema_snapshot_and_request_replay_upgrade(tmp_path: Path) -> None:
     payload.update(mode="full", paragraph_id=None)
     task, _ = enqueue(database, tmp_path, project, TaskInput(**payload), GenerationRegistry())
     old_snapshot = task["snapshot"]
+    old_snapshot.pop("output_contract", None)
     old_snapshot["adapter"] = M04_CAPABILITY
     old_fingerprint = canonical(
         {
@@ -356,7 +357,8 @@ def test_m04_schema_snapshot_and_request_replay_upgrade(tmp_path: Path) -> None:
     with connect(database) as connection:
         # Construct the actual pre-005 schema and literal M04 JSON/fingerprint, then upgrade it.
         connection.execute("DROP TABLE reference_transcripts")
-        connection.execute("DELETE FROM schema_migrations WHERE version=5")
+        connection.execute("DROP TABLE paragraph_audio_selections")
+        connection.execute("DELETE FROM schema_migrations WHERE version>=5")
         connection.execute(
             "UPDATE generation_tasks SET snapshot_json=? WHERE id=?",
             (canonical(old_snapshot), task["id"]),

@@ -9,12 +9,13 @@ import signal
 import sqlite3
 import subprocess
 import time
+import wave
 from collections.abc import Callable, Sequence
 from pathlib import Path
 from typing import Any
 
 from .audio import decode
-from .generation import RealAdapterCapability, TaskError
+from .generation import PARAGRAPH_OUTPUT_CONTRACT, RealAdapterCapability, TaskError
 from .model_config import (
     MODEL_ID,
     MODEL_REVISION,
@@ -365,7 +366,50 @@ class LocalCosyVoiceAdapter:
             }
             if any(metadata.get(key) != value for key, value in expected.items()):
                 raise TaskError(502, "adapter_invalid_output", "模型结果与固定输入身份不匹配")
-            decode(native, destination, ".wav")
+            if snapshot.get("output_contract") == PARAGRAPH_OUTPUT_CONTRACT:
+                from .segment_outputs import write_manifest
+
+                segments = metadata.get("segments")
+                if (
+                    not isinstance(segments, list)
+                    or [item.get("paragraph_id") for item in segments] != snapshot["paragraph_ids"]
+                ):
+                    raise TaskError(502, "adapter_invalid_output", "模型段落清单缺失或顺序不符")
+                parts = destination.parent / "segments"
+                parts.mkdir()
+                with wave.open(str(native), "rb") as combined_native:
+                    for item in segments:
+                        identifier = item["paragraph_id"]
+                        native_part = work / "native-segments" / f"{identifier}.wav"
+                        if native_part.is_symlink() or digest_file(native_part) != item.get(
+                            "sha256"
+                        ):
+                            raise TaskError(502, "adapter_invalid_output", "模型段落文件身份不符")
+                        with wave.open(str(native_part), "rb") as source:
+                            frames = source.getnframes()
+                            pcm = source.readframes(frames)
+                            if (
+                                source.getparams()[:3] != combined_native.getparams()[:3]
+                                or frames != item.get("frame_count")
+                                or frames <= 0
+                                or len(pcm)
+                                != frames * source.getnchannels() * source.getsampwidth()
+                                or pcm != combined_native.readframes(frames)
+                            ):
+                                raise TaskError(
+                                    502, "adapter_invalid_output", "模型分段内容与整篇不符"
+                                )
+                        decode(native_part, parts / f"{identifier}.wav", ".wav", min_frames=1)
+                    if combined_native.readframes(1):
+                        raise TaskError(502, "adapter_invalid_output", "模型整篇存在未归属段落")
+                with wave.open(str(destination), "wb") as combined:
+                    combined.setparams((1, 2, 24000, 0, "NONE", "not compressed"))
+                    for identifier in snapshot["paragraph_ids"]:
+                        with wave.open(str(parts / f"{identifier}.wav"), "rb") as part:
+                            combined.writeframes(part.readframes(part.getnframes()))
+                write_manifest(destination.parent, snapshot["paragraph_ids"])
+            else:
+                decode(native, destination, ".wav")
             self.last_result_metadata = {
                 **expected,
                 "model_id": config["model_id"],

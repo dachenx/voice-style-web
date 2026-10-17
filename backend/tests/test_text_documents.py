@@ -447,7 +447,7 @@ def test_m02_migration_upgrade_and_idempotence(tmp_path: Path) -> None:
             connection.execute("SELECT filename FROM audio_references").fetchone()[0]
             == "sample.wav"
         )
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 5
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 6
 
 
 def test_actual_process_restart_preserves_text_and_history(tmp_path: Path) -> None:

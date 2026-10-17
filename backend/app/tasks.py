@@ -15,7 +15,13 @@ from fastapi.responses import FileResponse
 from starlette.exceptions import HTTPException
 
 from .audio import SAMPLE_RATE
-from .generation import GenerationRegistry, RetryInput, TaskError, TaskInput
+from .generation import (
+    PARAGRAPH_OUTPUT_CONTRACT,
+    GenerationRegistry,
+    RetryInput,
+    TaskError,
+    TaskInput,
+)
 from .local_model import LocalCosyVoiceAdapter
 from .references import available, require_project, require_reference, timestamp
 from .storage import connect
@@ -215,6 +221,7 @@ def enqueue(
             "mode": payload.mode,
             "paragraph_ids": ids,
             "is_simulated": adapter.capability.is_simulated,
+            "output_contract": PARAGRAPH_OUTPUT_CONTRACT,
         }
         if transcript is not None:
             snapshot["reference"]["transcript"] = transcript

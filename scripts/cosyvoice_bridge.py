@@ -9,9 +9,11 @@ import sys
 import threading
 import traceback
 import wave
+from contextlib import nullcontext
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
+from uuid import UUID
 
 
 class BridgeFailure(RuntimeError):
@@ -121,6 +123,11 @@ def run(args: argparse.Namespace) -> None:
     validate_text_tokens(model, texts, config["limits"]["max_text_tokens"])
     sample_rate = int(model.sample_rate)
     total_frames = 0
+    segmented = snapshot.get("output_contract") == "paragraphs-v1"
+    segments = []
+    parts_directory = args.output.parent / "native-segments"
+    if segmented:
+        parts_directory.mkdir()
     with wave.open(str(args.output), "wb") as output:
         output.setnchannels(1)
         output.setsampwidth(2)
@@ -129,26 +136,47 @@ def run(args: argparse.Namespace) -> None:
             status.update(state="generating", paragraph_index=index)
             write_json(args.status, status)
             produced = 0
-            for chunk in model.inference_zero_shot(
-                text,
-                "You are a helpful assistant.<|endofprompt|>" + transcript["text"],
-                str(reference),
-                stream=False,
-                text_frontend=False,
-                speed=1.0,
-            ):
-                samples = chunk["tts_speech"].detach().cpu().reshape(-1)
-                if not bool(torch.isfinite(samples).all()):
-                    raise BridgeFailure("invalid_model_output")
-                frames = int(samples.numel())
-                if total_frames + frames > sample_rate * 600:
-                    raise BridgeFailure("output_limit_exceeded")
-                pcm = (samples.clamp(-1, 1) * 32767).to(torch.int16).numpy().astype("<i2").tobytes()
-                output.writeframes(pcm)
-                total_frames += frames
-                produced += frames
+            paragraph_id = str(UUID(snapshot["paragraph_ids"][index - 1]))
+            part_path = parts_directory / f"{paragraph_id}.wav"
+            with wave.open(str(part_path), "wb") if segmented else nullcontext() as part:
+                if part is not None:
+                    part.setparams((1, 2, sample_rate, 0, "NONE", "not compressed"))
+                for chunk in model.inference_zero_shot(
+                    text,
+                    "You are a helpful assistant.<|endofprompt|>" + transcript["text"],
+                    str(reference),
+                    stream=False,
+                    text_frontend=False,
+                    speed=1.0,
+                ):
+                    samples = chunk["tts_speech"].detach().cpu().reshape(-1)
+                    if not bool(torch.isfinite(samples).all()):
+                        raise BridgeFailure("invalid_model_output")
+                    frames = int(samples.numel())
+                    if total_frames + frames > sample_rate * 600:
+                        raise BridgeFailure("output_limit_exceeded")
+                    pcm = (
+                        (samples.clamp(-1, 1) * 32767)
+                        .to(torch.int16)
+                        .numpy()
+                        .astype("<i2")
+                        .tobytes()
+                    )
+                    output.writeframes(pcm)
+                    if part is not None:
+                        part.writeframes(pcm)
+                    total_frames += frames
+                    produced += frames
             if produced == 0:
                 raise BridgeFailure("invalid_model_output")
+            if segmented:
+                segments.append(
+                    {
+                        "paragraph_id": paragraph_id,
+                        "sha256": sha256(part_path),
+                        "frame_count": produced,
+                    }
+                )
             write_json(args.progress, {"completed_paragraphs": index})
     write_json(
         args.output.with_suffix(".meta.json"),
@@ -161,6 +189,7 @@ def run(args: argparse.Namespace) -> None:
             "native_sample_rate": sample_rate,
             "frame_count": total_frames,
             "model_loaded_at": status["loaded_at"],
+            **({"segments": segments} if segmented else {}),
         },
     )
     status.update(state="completed", model_loaded=False)

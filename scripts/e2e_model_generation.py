@@ -109,6 +109,10 @@ def runner(arguments: list[str]) -> int:
         failure.unlink()
         write_json(args.output.with_suffix(".error.json"), {"code": "model_inference_failed"})
         return 1
+    segments = []
+    segmented = snapshot.get("output_contract") == "paragraphs-v1"
+    if segmented:
+        (args.output.parent / "native-segments").mkdir()
     with wave.open(str(args.output), "wb") as audio:
         audio.setnchannels(1)
         audio.setsampwidth(2)
@@ -118,6 +122,12 @@ def runner(arguments: list[str]) -> int:
             write_json(args.status, status)
             with wave.open(io.BytesIO(synthetic_wave(6000)), "rb") as source:
                 audio.writeframes(source.readframes(6000))
+            if segmented:
+                identifier = snapshot["paragraph_ids"][index - 1]
+                part = args.output.parent / "native-segments" / f"{identifier}.wav"
+                part.write_bytes(synthetic_wave(6000))
+                segments.append({"paragraph_id": identifier, "sha256": digest_file(part),
+                                 "frame_count": 6000})
             write_json(args.progress, {"completed_paragraphs": index})
     write_json(args.output.with_suffix(".meta.json"), {
         "input_sha256": hashlib.sha256(canonical_config(snapshot).encode()).hexdigest(),
@@ -127,6 +137,7 @@ def runner(arguments: list[str]) -> int:
         "environment_fingerprint": digest_json(config["environment"]),
         "native_sample_rate": 24000, "frame_count": 6000 * len(texts),
         "model_loaded_at": now,
+        **({"segments": segments} if segmented else {}),
     })
     status.update(state="completed", model_loaded=False)
     write_json(args.status, status)
