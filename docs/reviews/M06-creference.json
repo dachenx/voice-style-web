@@ -1,0 +1,18 @@
+{
+  "module": "M06",
+  "reviewer": "process_guardian（固定方案监督员，独立只读审核）",
+  "verdict": "PASS",
+  "digest": "9291b7e01231e5cb7180b7c7dbcb6295c2ec4c7e9490b74792471e3eb71daf9c",
+  "evidence": [
+    "独立核对三份实际差异、重算摘要及diff check通过。",
+    "实际读取脚本输入及进程回执，单条离线退出0，4.32秒24k54token，无后处理。",
+    "独立比首轮Qwen目标稿、seed42、参数、revision及实际惩罚一致。",
+    "独立核C参考、新样、首轮Qwen与历史CosyVoice SHA及完整PCM匹配；直接比较基线已绑定首轮Qwen。"
+  ],
+  "findings": [],
+  "limitations": [
+    "未试听，不代表内容、音色、武汉话或韵律改善。",
+    "未重新核全部权重，依据脚本及回执；既有tokenizer警告未解决。",
+    "未运行模型或全套，暂存与提交由主持核验。"
+  ]
+}

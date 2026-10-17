@@ -1,12 +1,12 @@
 {
   "id": "M06",
-  "title": "M06 原声参考初筛与待核",
-  "base_commit": "177791abf01d6aaaa8016f0f6b24ec504e09186d",
+  "title": "M06 C参考单条声音对照",
+  "base_commit": "ebc7aad0a63876f870dbbdd0bca67ef6042faa88",
   "allowed_paths": [
     "quality/active-module.json",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M06-refscreen.json"
+    "docs/reviews/M06-creference.json"
   ],
   "acceptance": [
     "新任务保存真实分段产物、输入依赖与来源；段文件和整篇校验后原子发布，失败保留旧版本与选用",
@@ -46,5 +46,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M06-refscreen.json"
+  "review": "docs/reviews/M06-creference.json"
 }
