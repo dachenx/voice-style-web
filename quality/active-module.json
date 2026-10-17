@@ -1,11 +1,11 @@
 {
   "id": "M05",
-  "title": "M05 短文本人物音色优化与参考候选核对",
-  "base_commit": "3ab75d57d56765b73f1be108a335f9d82ee7f1bb",
+  "title": "M05 短样对比交付推送错误记录",
+  "base_commit": "53112977c9ed09c4c82dbb5954d62d70f0172ab5",
   "allowed_paths": [
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M05-short-style.json",
+    "docs/reviews/M05-short-style-push.json",
     "quality/active-module.json"
   ],
   "acceptance": [
@@ -43,5 +43,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M05-short-style.json"
+  "review": "docs/reviews/M05-short-style-push.json"
 }
