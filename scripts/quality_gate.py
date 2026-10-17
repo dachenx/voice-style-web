@@ -204,6 +204,7 @@ def main():
     parser.add_argument("mode", choices=["quick", "full", "digest", "commit-msg", "pre-push"])
     parser.add_argument("file", nargs="?")
     parser.add_argument("--no-review", action="store_true")
+    parser.add_argument("--review", action="store_true", help="快速检查时核对独立审核摘要，不运行功能全套")
     parser.add_argument("--index", action="store_true")
     args = parser.parse_args()
     try:
@@ -229,6 +230,8 @@ def main():
                 raise GateError("检查命令改动了入库文件；请重审并重新检查")
             if not args.no_review:
                 assert_review(root, config, entries)
+        elif args.review:
+            assert_review(root, config, entries)
         if args.index:
             assert_index(root, entries)
         print("PASS: " + config["id"] + " / " + args.mode)

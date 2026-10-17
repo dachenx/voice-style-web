@@ -216,6 +216,34 @@ class QualityGateTests(unittest.TestCase):
             remote_sha = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "refs/heads/main"], capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(remote_sha, head)
 
+    def test_development_hooks_skip_acceptance_but_keep_review_and_index(self):
+        for name in ("quality_gate.py", "codex_hook.py"):
+            shutil.copy(PROJECT / "scripts" / name, self.root / "scripts" / name)
+        shutil.copytree(PROJECT / ".githooks", self.root / ".githooks")
+        self.config["checks"][0]["argv"] = ["{python}", "-c",
+            "from pathlib import Path; Path('.quality-local/acceptance-ran').touch(); raise SystemExit(17)"]
+        self.save_config()
+        self.run_git("config", "core.hooksPath", ".githooks")
+        self.run_git("add", ".")
+        missing = self.run_git("commit", "-m", "chore(M00): lightweight", check=False)
+        self.assertNotEqual(missing.returncode, 0)
+        self.assertIn("审查", missing.stdout + missing.stderr)
+        self.approve()
+        self.run_git("add", ".")
+        self.write("scripts/feature.py", "answer = 43\n")
+        self.approve()
+        unstaged = self.run_git("commit", "-m", "chore(M00): lightweight", check=False)
+        self.assertNotEqual(unstaged.returncode, 0)
+        self.assertIn("索引", unstaged.stdout + unstaged.stderr)
+        stopped = subprocess.run([sys.executable, "scripts/codex_hook.py"], cwd=self.root,
+            input=json.dumps({"cwd": str(self.root), "hook_event_name": "Stop"}),
+            capture_output=True, text=True, check=True)
+        self.assertNotIn("decision", json.loads(stopped.stdout))
+        self.run_git("add", ".")
+        committed = self.run_git("commit", "-m", "chore(M00): lightweight", check=False)
+        self.assertEqual(committed.returncode, 0, committed.stdout + committed.stderr)
+        self.assertFalse((self.root / ".quality-local/acceptance-ran").exists())
+
     def test_codex_posttool_feedback_and_stop_no_infinite_loop(self):
         for name in ("quality_gate.py", "codex_hook.py"):
             shutil.copy(PROJECT / "scripts" / name, self.root / "scripts" / name)

@@ -29,7 +29,7 @@ def main():
         if not git(root, "status", "--porcelain", "--untracked-files=all").strip():
             print("{}")
             return
-        mode = "full"
+        mode = "quick"
     else:
         print("{}")
         return
@@ -50,7 +50,7 @@ def main():
     elif kind == "PostToolUse":
         print(json.dumps({"hookSpecificOutput": {"hookEventName": kind, "additionalContext": "片段快速检查通过。功能和方案符合性仍须在阶段结束交给独立 Plan Guardian 审查。"}}, ensure_ascii=False))
     else:
-        print(json.dumps({"systemMessage": "模块检查通过；按工作流核实 commit/push 和 CI 状态后交付。"}, ensure_ascii=False))
+        print(json.dumps({"systemMessage": "快速检查通过；按本轮改动执行必要验证并本地提交，不自动运行功能全套或上传。"}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

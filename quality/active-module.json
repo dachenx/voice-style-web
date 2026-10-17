@@ -1,10 +1,12 @@
 {
   "id": "M06",
-  "title": "M06 主线收尾与验收修复",
-  "base_commit": "42c7a0212ff634187cf35331dfcc7aa951e95c75",
+  "title": "M06 开发期轻量检查",
+  "base_commit": "c9a261816c58c4374c631d6e9a03fe53fe3fef1e",
   "allowed_paths": [
-    "frontend/e2e/versions.spec.ts",
-    "frontend/playwright.config.ts",
+    ".githooks/pre-commit",
+    "scripts/quality_gate.py",
+    "scripts/codex_hook.py",
+    "tests/test_quality_gate.py",
     "docs/协作规则.md",
     "docs/团队协作与方案监督.md",
     "docs/分模块开发与验收.md",
@@ -12,7 +14,7 @@
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
     "docs/全员业务审查与总验收报告.md",
-    "docs/reviews/M06-main-closeout.json",
+    "docs/reviews/M06-lightweight.json",
     "quality/active-module.json"
   ],
   "acceptance": [
@@ -27,7 +29,8 @@
     "按主聊天正式确认的D026同步开放模型候选方向，本轮不新增外部服务、费用或私人素材上传",
     "本批修正E106测试初始读取前置，保留稳定刷新失败的禁用、恢复、跨项目隔离及历史断言",
     "本批隔离默认浏览器测试产物，保留trace、零重试和服务不复用；端口及单一写入要求保持",
-    "按D028初版前仅严格本地检查、独立审核及正常Git提交，暂停GitHub推送、PR、远端合并及CI操作"
+    "按D028初版前仅本地Git，暂停GitHub推送、PR、远端合并及CI操作",
+    "按D029开发提交仅quick、索引和审核摘要核对，Stop仅quick，不自动启动应用全套；受影响治理回归验证功能命令未执行且原必要阻断保留"
   ],
   "checks": [
     {
@@ -52,5 +55,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M06-main-closeout.json"
+  "review": "docs/reviews/M06-lightweight.json"
 }
