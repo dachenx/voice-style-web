@@ -1,21 +1,12 @@
 {
   "id": "M06",
-  "title": "M06 开发期轻量检查",
-  "base_commit": "c9a261816c58c4374c631d6e9a03fe53fe3fef1e",
+  "title": "M06 后续声音候选公开研究",
+  "base_commit": "cea59ba8d85f83a30507db77a86884a5ccefdf66",
   "allowed_paths": [
-    ".githooks/pre-commit",
-    "scripts/quality_gate.py",
-    "scripts/codex_hook.py",
-    "tests/test_quality_gate.py",
-    "docs/协作规则.md",
-    "docs/团队协作与方案监督.md",
-    "docs/分模块开发与验收.md",
-    "项目说明.md",
+    "quality/active-module.json",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/全员业务审查与总验收报告.md",
-    "docs/reviews/M06-lightweight.json",
-    "quality/active-module.json"
+    "docs/reviews/M06-candidates.json"
   ],
   "acceptance": [
     "新任务保存真实分段产物、输入依赖与来源；段文件和整篇校验后原子发布，失败保留旧版本与选用",
@@ -55,5 +46,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M06-lightweight.json"
+  "review": "docs/reviews/M06-candidates.json"
 }
