@@ -15,8 +15,8 @@ async function requestFingerprint(body: string): Promise<string> {
   const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
   return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
 }
-export default function ExportPanel({ projectId, catalog, disabled }: {
-  projectId: string; catalog: VersionCatalogue; disabled: boolean;
+export default function ExportPanel({ projectId, catalog, disabled, onSelectAudio }: {
+  projectId: string; catalog: VersionCatalogue; disabled: boolean; onSelectAudio: () => void;
 }) {
   const [records, setRecords] = useState<ExportRecord[]>([]);
   const [error, setError] = useState('');
@@ -93,6 +93,12 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
   }
   return <section className="paragraph-versions" aria-label="拼接与导出">
     <h3>拼接与导出</h3>
+    <ol aria-label="拼接操作步骤">
+      <li><strong>1. 选择音频</strong>：每段选一个试听满意的版本。<button className="text-button" onClick={onSelectAudio}>选择或更换拼接音频</button></li>
+      <li><strong>2. 调整顺序</strong>：在上方“高级分段编辑与历史”拖动段落或点击上移、下移，再点“保存并确认文案与顺序”。</li>
+      <li><strong>3. 设置停顿并导出</strong>：核对下方清单，设置新增静音，导出后可先试听再下载。这里只拼接本项目已生成的段落音频。</li>
+    </ol>
+    {!catalog.paragraphs.length && <p className="field-hint">尚无可拼接段落：先填写文案并生成，再为每段选用音频。</p>}
     <p className="audio-hint">按服务器已保存的段落顺序，使用各段已选用版本。保留原声音量和停顿；新增静音只插在段落之间。导出不代表声音验收通过。</p>
     <ol>{catalog.paragraphs.map((p, i) => <li key={p.id}>第 {i + 1} 段：{selected[i] ? `版本 ${selected[i]!.number} · ${selected[i]!.is_simulated ? '模拟测试音' : '真实生成'} · ${selected[i]!.comparison === 'matching' ? '匹配已保存稿' : '过时或无法核定'}` : '尚未选用'}
       {selected[i]?.stale_reasons.map(reason => <p className="field-hint" key={reason}>{reason}</p>)}
@@ -102,9 +108,9 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
       onChange={e => updateExport(projectId, { pause: Number(e.target.value) })} /></label>
     {mismatch && catalog.confirmation_current && <label key={token}><input type="checkbox" checked={acknowledged} disabled={busy} onChange={e => { lastToken.current = token; setAck(e.target.checked); }} />我已核对，仍导出过时或无法核定的选用版本</label>}
     {!catalog.confirmation_current && <p className="field-hint">请先确认已保存文案，再创建导出。</p>}
-    {missing && <p className="field-hint">整篇缺少可用选用音频，请在上方逐段选用；已就绪段可单独导出。</p>}
+    {missing && <p className="field-hint">整篇缺少可用音频：第 {selected.map((v, i) => !v?.available ? i + 1 : null).filter(Boolean).join('、')} 段。请点击“选择或更换拼接音频”补齐；已就绪段可单独导出。</p>}
     {disabled && <p className="field-hint">请先保存文案并刷新版本，核对最新顺序和选用。</p>}
-    <div className="task-actions"><button className="button secondary" disabled={blocked || missing || (mismatch && !acknowledged) || !Number.isInteger(pause) || pause < 0 || pause > 2000}
+    <div className="task-actions"><button className="button secondary" disabled={blocked || !catalog.paragraphs.length || missing || (mismatch && !acknowledged) || !Number.isInteger(pause) || pause < 0 || pause > 2000}
       onClick={() => void create(null)}>导出整篇 WAV</button>
       <button className="text-button" disabled={busy} onClick={() => setRefresh(v => v + 1)}>刷新导出历史</button>
       {pending && <button className="text-button" disabled={busy} onClick={() => void create(pending!.paragraph, true)}>重试同一导出请求</button>}</div>
@@ -118,8 +124,8 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
       <p>{r.created_at ? new Date(r.created_at).toLocaleString('zh-CN') : r.id} · {r.is_simulated ? '含模拟测试音，不朗读文案' : '导出记录'} · {r.audio ? `${(r.audio.duration_ms / 1000).toFixed(3)} 秒` : ''}</p>
       {r.segments?.some(s => s.version.comparison !== 'matching') && <p className="field-hint">导出时包含过时或无法核定版本。</p>}
       <p className="audio-hint">固定导出快照，后续改稿和换选用不会修改此文件。</p>
-      {r.available ? <div className="task-actions"><a className="text-button" href={`/api${base}/${r.id}/audio`} download>下载 WAV</a>
-        <a className="text-button" href={`/api${base}/${r.id}/manifest`} download>下载来源记录 JSON</a></div> : <p role="alert">导出文件不可用，历史记录保留，请核对本地文件。</p>}
+      {r.available ? <div><audio controls preload="none" aria-label="试听拼接结果" src={`/api${base}/${r.id}/audio`} /><div className="task-actions"><a className="text-button" href={`/api${base}/${r.id}/audio`} download>下载 WAV</a>
+        <a className="text-button" href={`/api${base}/${r.id}/manifest`} download>下载来源记录 JSON</a></div></div> : <p role="alert">导出文件不可用，历史记录保留，请核对本地文件。</p>}
     </article>)}
   </section>;
 }

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { messageOf, request } from './api';
 import ExportPanel from './ExportPanel';
+import { advancedPreference } from './uiPreferences';
 
 export type AudioVersion = {
   id: string; paragraph_id: string; task_id: string; number: number; ordinal: number;
@@ -76,6 +77,8 @@ export default function VersionPanel({ projectId, adapterId, refreshStamp, dirty
   const [busy, setBusy] = useState(false);
   const busyRef = useRef(false);
   const [candidateId, setCandidateId] = useState('');
+  const [selectionOpen, setSelectionOpen] = useState(advancedPreference);
+  const choices = useRef<HTMLDetailsElement>(null);
   const controller = useRef<AbortController | null>(null);
   const sequence = useRef(0);
   const base = `/projects/${projectId}`;
@@ -115,7 +118,7 @@ export default function VersionPanel({ projectId, adapterId, refreshStamp, dirty
   }
 
   return <section className="version-panel" aria-label="段落版本与局部返修">
-    <div className="subsection-title"><h3>段落版本与局部返修</h3>
+    <div className="subsection-title"><h3>拼接本项目音频</h3>
       <button className="text-button" disabled={busy} onClick={() => { setCandidateId(''); setRefresh((value) => value + 1); }}>刷新版本</button></div>
     <p className="audio-hint">以当前选择的生成组件与服务器已保存稿比较。选用仅表示保留此版本用于后续，不代表音色或武汉话已验收；新生成不会自动替换选用。</p>
     {dirty && <p className="field-hint">有未保存文案：下面的比较和顺序不包含本地修改，请先保存再核对。</p>}
@@ -124,6 +127,7 @@ export default function VersionPanel({ projectId, adapterId, refreshStamp, dirty
     <p role="status" aria-label="版本操作状态">{notice}</p>
     {catalog?.readiness.map((reason) => <p key={reason} className="field-hint">{reason}</p>)}
     {catalog && catalog.legacy_full_count > 0 && <p className="audio-hint">有 {catalog.legacy_full_count} 个旧全文任务未保存段边界，请在任务记录中试听整篇。</p>}
+    <details ref={choices} open={selectionOpen} onToggle={e => setSelectionOpen(e.currentTarget.open)}><summary>选择拼接音频与高级局部返修</summary>
     {catalog?.paragraphs.map((paragraph, index) => <section className="paragraph-versions" key={paragraph.id} aria-label={`第 ${index + 1} 段版本`} data-version-paragraph={paragraph.id}>
       <div className="subsection-title"><h4>第 {index + 1} 段</h4><button className="button secondary" disabled={!ready || busy || !!blocked}
         onClick={() => onGenerate(paragraph.id)}>按当前确认稿重生成本段</button></div>
@@ -144,7 +148,8 @@ export default function VersionPanel({ projectId, adapterId, refreshStamp, dirty
           <button className="text-button" disabled={!ready || !version.available} onClick={() => setCandidateId(version.id)}>前后段试听</button></div>
       </article>)}
     </section>)}
-    {catalog && <ExportPanel key={projectId} projectId={projectId} catalog={catalog} disabled={!ready || busy || dirty} />}
+    </details>
+    {catalog && <ExportPanel key={projectId} projectId={projectId} catalog={catalog} disabled={!ready || busy || dirty} onSelectAudio={() => { setSelectionOpen(true); choices.current?.scrollIntoView({ behavior: 'smooth', block: 'start' }); }} />}
     {candidate && catalog && ready && <NeighborPlayer key={`${catalog.comparison_token}:${catalog.paragraphs.map((p) => p.selection?.revision ?? 0).join(',')}:${candidate.id}`}
       projectId={projectId} paragraphs={catalog.paragraphs} candidate={candidate} />}
     {!!catalog?.archived_versions.length && <details><summary>已删除段落的历史（{catalog.archived_versions.length} 个版本）</summary>

@@ -1,28 +1,23 @@
 {
   "id": "M07",
-  "title": "M07 创建请求核对与结束",
-  "base_commit": "43a7bb1e9564b7927e32c87494909736bd5add26",
+  "title": "M07 简洁文案与拼接引导",
+  "base_commit": "3f97775cde375036dd4f33d34ef744fca3316eb1",
   "allowed_paths": [
     "quality/active-module.json",
-    "backend/app/main.py",
-    "backend/app/migrations/009_abandoned_project_requests.sql",
-    "backend/tests/test_project_lifecycle.py",
-    "frontend/src/App.tsx",
-    "frontend/src/operationCache.ts",
-    "frontend/e2e/usability.spec.ts",
+    "frontend/src/TextPanel.tsx",
+    "frontend/src/TaskPanel.tsx",
+    "frontend/src/VersionPanel.tsx",
+    "frontend/src/ExportPanel.tsx",
+    "frontend/src/uiPreferences.ts",
+    "frontend/e2e/",
     "docs/快速使用指南.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-create-resolve.json",
-    "backend/tests/test_api.py",
-    "backend/tests/test_references.py",
-    "backend/tests/test_text_documents.py",
-    "backend/tests/test_versions.py",
-    "backend/tests/test_model_inputs.py"
+    "docs/reviews/M07-simple-flow.json"
   ],
   "acceptance": [
-    "事务核对原创建请求，已创建保留项目，未创建持久结束防迟到复活",
-    "未知结果保留同请求，明确终态后释放，隔离验证迁移/重启/并发与浏览器恢复"
+    "单框编辑，一键顺序保存确认入队，失败保留输入与原任务恢复",
+    "旧多段身份、原稿、备注和历史保留，拼接选用排序停顿试听下载有明确引导"
   ],
   "checks": [
     {
@@ -47,5 +42,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-create-resolve.json"
+  "review": "docs/reviews/M07-simple-flow.json"
 }

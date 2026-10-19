@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './advancedFixture';
 import { randomUUID } from 'node:crypto';
 
 test('永久删除两次确认，取消无写且无需输入名称，成功只删除目标', async ({ page }) => {

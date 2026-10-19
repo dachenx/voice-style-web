@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './advancedFixture';
 import { randomUUID } from 'node:crypto';
 import type { TextDocument } from '../src/TextPanel';
 import type { VersionCatalogue } from '../src/VersionPanel';

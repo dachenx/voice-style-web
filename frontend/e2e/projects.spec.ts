@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test';
+import { expect, test } from './advancedFixture';
 import type { Project } from '../src/api';
 
 test('迟到的旧列表不能覆盖创建和重命名后的项目', async ({ page }, testInfo) => {

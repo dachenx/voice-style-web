@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './advancedFixture';
 import { randomUUID } from 'node:crypto';
 import type { TextDocument } from '../src/TextPanel';
 import type { VersionCatalogue } from '../src/VersionPanel';
@@ -104,17 +104,14 @@ test('复制取消和撤销只恢复草稿；误删恢复原UUID顺序且保留�
   page.once('dialog', d => d.accept());
   await first.getByRole('button', { name: '复制原稿到草稿' }).click();
   await first.getByLabel('普通话原稿', { exact: true }).fill('复制后新原稿');
-  await first.getByLabel('读音备注').fill('复制后新备注');
   await page.getByRole('button', { name: '撤销最近一次复制或删除' }).click();
   await expect(first.getByLabel('武汉话草稿', { exact: true })).toHaveValue(oldDraft);
   await expect(first.getByLabel('普通话原稿', { exact: true })).toHaveValue('复制后新原稿');
-  await expect(first.getByLabel('读音备注')).toHaveValue('复制后新备注');
   await first.getByRole('button', { name: '删除段落' }).click();
   await page.getByLabel('武汉话草稿', { exact: true }).first().fill('其他段修改保留');
   await page.getByRole('button', { name: '撤销最近一次复制或删除' }).click();
   await expect(first).toHaveAttribute('data-paragraph-id', id!);
   await expect(page.getByLabel('武汉话草稿', { exact: true }).nth(1)).toHaveValue('其他段修改保留');
-  await expect(first.getByLabel('读音备注')).toHaveValue('复制后新备注');
 });
 
 test('初始文案失败明确停止加载并允许重试', async ({ page }) => {

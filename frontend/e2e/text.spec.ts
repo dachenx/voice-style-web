@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './advancedFixture';
 import type { TextDocument } from '../src/TextPanel';
 
 async function create(page: Page) {
@@ -12,7 +12,6 @@ async function fill(page: Page) {
   await page.getByRole('button', { name: '添加段落' }).click();
   await page.getByLabel('普通话原稿', { exact: true }).fill('今天我们去汉口。');
   await page.getByLabel('武汉话草稿', { exact: true }).fill('今天我们克汉口。');
-  await page.getByLabel('读音备注', { exact: true }).fill('汉口保持地名读音');
 }
 async function save(page: Page) {
   await page.getByRole('button', { name: '保存文案', exact: true }).click();
@@ -278,7 +277,7 @@ test('200段删除预留撤销位置，保存失败仍可完整恢复，成功�
   const restored = page.locator(`[data-paragraph-id="${removed.id}"]`);
   await expect(restored.getByLabel('普通话原稿', { exact: true })).toHaveValue(removed.original_text);
   await expect(restored.getByLabel('武汉话草稿', { exact: true })).toHaveValue(removed.draft_text);
-  await expect(restored.getByRole('textbox', { name: '读音备注', exact: true })).toHaveValue(removed.pronunciation_note);
+  await expect(restored.getByLabel('已存读音备注')).toContainText(removed.pronunciation_note);
   fail = false; await save(page);
   const stored = await (await page.request.get(`/api/projects/${id}/text`)).json();
   expect(stored.paragraphs).toEqual(paragraphs.map((p, i) => i === 0 ? { ...p, draft_text: '其他编辑保留' } : p));

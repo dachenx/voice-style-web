@@ -1,4 +1,4 @@
-import { expect, test, type Page } from '@playwright/test';
+import { expect, test, type Page } from './advancedFixture';
 import type { Project } from '../src/api';
 import type { TextDocument } from '../src/TextPanel';
 
