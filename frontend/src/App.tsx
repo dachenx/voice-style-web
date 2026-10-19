@@ -1,7 +1,8 @@
 import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowDown, ArrowRight, AudioLines, Check, ChevronRight, CircleAlert, Folder,
   FolderOpen, HardDrive, Layers3, LoaderCircle, Pencil, Plus, RefreshCw, X } from 'lucide-react';
-import { messageOf, request, validateName, type Project } from './api';
+import { ApiError, messageOf, request, validateName, type Project } from './api';
+import { setCreation, useCreation } from './operationCache';
 import ReferencePanel from './ReferencePanel';
 import TextPanel from './TextPanel';
 import { pendingDrafts } from './textDraftCache';
@@ -23,7 +24,8 @@ function NameDialog({ editing, onDismiss, onSaved }: {
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
   const input = useRef<HTMLInputElement>(null);
-  const [name, setName] = useState(editing.mode === 'rename' ? editing.project.name : '');
+  const pending = useCreation();
+  const [name, setName] = useState(editing.mode === 'rename' ? editing.project.name : pending?.name ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const validation = validateName(name);
@@ -43,13 +45,17 @@ function NameDialog({ editing, onDismiss, onSaved }: {
     if (saving || validation) return;
     setSaving(true);
     setError(null);
+    const creationBody = creating ? pending ?? { request_id: crypto.randomUUID(), name: name.trim() } : null;
+    if (creationBody) setCreation(creationBody);
     try {
       const project = await request<Project>(creating ? '/projects' : `/projects/${editing.project.id}`, {
-        method: creating ? 'POST' : 'PATCH', body: JSON.stringify({ name: name.trim() }),
+        method: creating ? 'POST' : 'PATCH', body: JSON.stringify(creationBody ?? { name: name.trim() }),
       });
+      if (creating) setCreation(null);
       onSaved(project);
     } catch (failure) {
-      setError(messageOf(failure));
+      if (creating && failure instanceof ApiError && failure.status === 422) setCreation(null);
+      setError(`${messageOf(failure)}${creating ? " 创建结果请核对，重试会沿用原请求，不会重复创建。" : ""}`);
       setSaving(false);
     }
   }
@@ -65,12 +71,13 @@ function NameDialog({ editing, onDismiss, onSaved }: {
       <h2 id="dialog-title">{creating ? '开启一个声音项目' : '重命名项目'}</h2>
       <p className="muted">{creating ? '给这次配音起个名字，让想法有一个开始。' : '新的名称将保存在本机，项目内容会继续保留。'}</p>
       <label className="field-label" htmlFor="project-name">项目名称</label>
-      <input ref={input} id="project-name" value={name} disabled={saving} placeholder="例如：武汉街巷 · 开场白"
+      <input ref={input} id="project-name" value={name} disabled={saving || (creating && !!pending)} placeholder="例如：武汉街巷 · 开场白"
         autoComplete="off" aria-describedby="name-hint" aria-invalid={!!name && !!validation}
         onChange={(event) => { setName(event.target.value); setError(null); }} />
       <p id="name-hint" className={`field-hint ${name && validation ? 'invalid' : ''}`}>
         {name && validation ? validation : '1–80 个字，可以使用中文、数字和表情。'}
       </p>
+      {creating && pending && <p className="field-hint">有待核对的创建请求，名称已固定。可重试原请求；关闭窗口后再点新建可继续核对。刷新整个页面前请先核对项目列表。</p>}
       {error && <div className="error-box" role="alert"><CircleAlert size={18} />{error}</div>}
       <div className="dialog-actions">
         <button type="button" className="button secondary" disabled={saving} onClick={onDismiss}>取消</button>
@@ -98,6 +105,8 @@ export default function App() {
   const [detail, setDetail] = useState<Detail>({ state: 'loading' });
   const [editing, setEditing] = useState<Editing | null>(null);
   const [notice, setNotice] = useState('');
+  const [showArchived, setShowArchived] = useState(false);
+  const [archiving, setArchiving] = useState(false);
   const writeEpoch = useRef(0);
 
   useEffect(() => {
@@ -109,7 +118,7 @@ export default function App() {
   useEffect(() => {
     const controller = new AbortController();
     const epoch = writeEpoch.current;
-    request<{ projects: Project[] }>('/projects', { signal: controller.signal })
+    request<{ projects: Project[] }>(showArchived ? '/projects?archived=true' : '/projects', { signal: controller.signal })
       .then((result) => {
         if (controller.signal.aborted || epoch !== writeEpoch.current) return;
         setProjects(sorted(result.projects)); setListError(null);
@@ -117,7 +126,7 @@ export default function App() {
       .catch((error: unknown) => { if (!controller.signal.aborted && epoch === writeEpoch.current) setListError(messageOf(error)); })
       .finally(() => { if (!controller.signal.aborted && epoch === writeEpoch.current) setLoading(false); });
     return () => controller.abort();
-  }, [refresh]);
+  }, [refresh, showArchived]);
 
   useEffect(() => {
     if (!selectedId) return;
@@ -133,6 +142,12 @@ export default function App() {
     return () => controller.abort();
   }, [selectedId, refresh]);
 
+  function changeFilter(archived: boolean) {
+    if (archived === showArchived) return;
+    writeEpoch.current += 1; setProjects([]); setLoading(true); setListError(null);
+    setShowArchived(archived); setRefresh(v => v + 1);
+  }
+
   function retry() {
     setLoading(true);
     setDetail({ state: 'loading' });
@@ -143,11 +158,29 @@ export default function App() {
     // Invalidate reads started before this write, then refresh authoritative server state.
     writeEpoch.current += 1;
     setRefresh((value) => value + 1);
-    setProjects((items) => sorted([project, ...items.filter((item) => item.id !== project.id)]));
+    setProjects((items) => sorted([...(!!project.archived === showArchived ? [project] : []), ...items.filter((item) => item.id !== project.id)]));
     setDetail({ state: 'ready', project });
     setNotice(editing?.mode === 'create' ? '项目已创建并保存在本机。' : '项目名称已保存。');
     setEditing(null);
     window.location.hash = new URLSearchParams({ project: project.id }).toString();
+  }
+
+  async function archiveProject(project: Project) {
+    if (archiving) return;
+    if (pendingDrafts.has(project.id) || [...transcriptDrafts.keys()].some(key => key.startsWith(`${project.id}:`))) {
+      setNotice('有未保存文案或参考原话，请先保存，再归档或恢复项目。'); return;
+    }
+    const archived = !project.archived;
+    if (!window.confirm(archived ? '归档项目将从活跃列表移出，保留所有资料，可随时恢复。排队和运行中的任务会继续。是否归档？' : '恢复项目到活跃列表？')) return;
+    setArchiving(true);
+    writeEpoch.current += 1;
+    try {
+      await request(`/projects/${project.id}/archive`, { method: 'PUT', body: JSON.stringify({ archived }) });
+      setNotice(archived ? '项目已归档，资料与任务保留，可在已归档列表恢复。' : '项目已恢复到活跃列表。');
+      if (getSelectedId() === project.id) window.location.hash = '';
+    } catch (cause) {
+      setNotice(`项目整理结果需要核对：${messageOf(cause)} 请刷新列表核对；归档与恢复按按钮标明的目标执行。`);
+    } finally { setArchiving(false); setRefresh(v => v + 1); }
   }
 
   function contentChanged() {
@@ -196,8 +229,9 @@ export default function App() {
           </div>
         </section>
 
-        <div className="section-heading"><div><h2>全部项目</h2><span className="count">{projects.length}</span></div>
+        <div className="section-heading"><div><h2>{showArchived ? '已归档项目' : '活跃项目'}</h2><span className="count">{projects.length}</span></div>
           <span className="sort-note"><ArrowDown size={13} />最近更新</span></div>
+        <div className="text-actions"><button className="button secondary" aria-pressed={!showArchived} onClick={() => changeFilter(false)}>活跃项目</button><button className="button secondary" aria-pressed={showArchived} onClick={() => changeFilter(true)}>已归档</button><button className="text-button" onClick={retry}>刷新项目列表</button></div>
         <p className="save-notice" role="status" aria-label="项目操作状态">{notice}</p>
         {listError && <div className="error-box list-error" role="alert"><CircleAlert size={19} /><span>{listError}</span>
           <button className="text-button" onClick={retry} disabled={loading}><RefreshCw size={14} />重试</button></div>}
@@ -207,12 +241,12 @@ export default function App() {
             {loading && projects.length === 0 ? <div className="empty-state"><LoaderCircle className="spin" size={24} /><p>正在读取本地项目…</p></div> :
               projects.length === 0 && !listError ? <div className="empty-state">
                 <div className="empty-art"><FolderOpen size={33} strokeWidth={1.5} /><span><Plus size={12} /></span></div>
-                <h3>第一个项目，从这里开始</h3><p>为这次配音命名，建立你的声音工作空间。</p>
+                <h3>{showArchived ? '暂无归档项目' : '第一个项目，从这里开始'}</h3><p>{showArchived ? '归档仅整理列表，不删除资料或停止任务。' : '为这次配音命名，建立你的声音工作空间。'}</p>
                 <button className="button secondary" onClick={() => setEditing({ mode: 'create' })}>创建第一个项目<ArrowRight size={16} /></button>
               </div> : <div className="project-cards">{projects.map((project) =>
                 <a key={project.id} className={`project-card ${project.id === selectedId ? 'selected' : ''}`}
                   href={`#project=${project.id}`} aria-current={project.id === selectedId ? 'true' : undefined}>
-                  <div className="project-card-top"><div className="project-icon"><Folder size={21} /></div><span className="project-tag">项目已建立</span></div>
+                  <div className="project-card-top"><div className="project-icon"><Folder size={21} /></div><span className="project-tag">{project.archived ? '已归档' : '项目已建立'}</span></div>
                   <h3>{project.name}</h3><p>更新于 <time dateTime={project.updated_at}>{dateOf(project.updated_at)}</time></p>
                   <div className="project-card-bottom"><span><HardDrive size={13} />保存在本机</span><ArrowRight size={17} /></div>
                 </a>)}</div>}
@@ -225,6 +259,8 @@ export default function App() {
                 <div className="detail-icon"><FolderOpen size={27} /></div>
                 <h2 className="detail-name">{detail.project.name}</h2>
                 <button className="text-button rename-button" onClick={() => setEditing({ mode: 'rename', project: detail.project })}><Pencil size={14} />重命名</button>
+                <button className="button secondary" disabled={archiving} onClick={() => void archiveProject(detail.project)}>{detail.project.archived ? '恢复项目' : '归档项目'}</button>
+                {!!detail.project.archived && <p>该项目已归档，仅从活跃列表移出；资料仍可访问，任务不受影响。</p>}
                 <dl className="project-meta"><div><dt>创建时间</dt><dd><time dateTime={detail.project.created_at}>{dateOf(detail.project.created_at)}</time></dd></div>
                   <div><dt>最近更新</dt><dd><time dateTime={detail.project.updated_at}>{dateOf(detail.project.updated_at)}</time></dd></div><div><dt>保存位置</dt><dd>本机</dd></div></dl>
                 <div className="next-step"><span className="step-number">下一步</span><h3>为项目加入参考声音</h3><p>在下方导入音频，试听并选取一段作为当前参考。原件和已保存的片段都会保留。</p></div>

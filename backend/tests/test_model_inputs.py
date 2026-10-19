@@ -358,6 +358,8 @@ def test_m04_schema_snapshot_and_request_replay_upgrade(tmp_path: Path) -> None:
         # Construct the actual pre-005 schema and literal M04 JSON/fingerprint, then upgrade it.
         connection.execute("DROP TABLE reference_transcripts")
         connection.execute("DROP TABLE paragraph_audio_selections")
+        connection.execute("DROP TABLE project_archives")
+        connection.execute("DROP TABLE project_create_requests")
         connection.execute("DELETE FROM schema_migrations WHERE version>=5")
         connection.execute(
             "UPDATE generation_tasks SET snapshot_json=? WHERE id=?",

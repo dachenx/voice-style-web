@@ -15,7 +15,7 @@ from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, StrictBool, field_validator
 from starlette.exceptions import HTTPException
 
 from .audio import AudioError
@@ -48,6 +48,15 @@ class ProjectInput(BaseModel):
         if not 1 <= len(value) <= 80:
             raise ValueError("项目名称去除首尾空白后须为 1–80 个字符")
         return value
+
+
+class CreateProjectInput(ProjectInput):
+    request_id: UUID | None = None
+
+
+class ArchiveInput(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    archived: StrictBool
 
 
 def error(status: int, code: str, message: str) -> JSONResponse:
@@ -145,31 +154,55 @@ def create_app(
         return {"status": "ok"}
 
     @application.get("/api/projects")
-    def list_projects() -> dict[str, list[dict[str, Any]]]:
+    def list_projects(archived: bool = False) -> dict[str, list[dict[str, Any]]]:
         require_storage()
         with connect(database) as connection:
-            rows = connection.execute("SELECT * FROM projects ORDER BY updated_at DESC, id ASC")
+            rows = connection.execute(
+                "SELECT p.*, (a.project_id IS NOT NULL) AS archived FROM projects p "
+                "LEFT JOIN project_archives a ON a.project_id=p.id "
+                "WHERE (a.project_id IS NOT NULL)=? ORDER BY p.updated_at DESC,p.id ASC",
+                (archived,),
+            )
             return {"projects": [dict(row) for row in rows]}
 
     @application.post("/api/projects", status_code=201)
-    def create_project(payload: ProjectInput) -> dict[str, str]:
+    def create_project(payload: CreateProjectInput) -> dict[str, Any]:
         require_storage()
         timestamp = datetime.now(UTC).isoformat().replace("+00:00", "Z")
         project = dict(
             id=str(uuid4()), name=payload.name, created_at=timestamp, updated_at=timestamp
         )
         with connect(database) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if payload.request_id is not None:
+                prior = connection.execute(
+                    "SELECT * FROM project_create_requests WHERE request_id=?",
+                    (str(payload.request_id),),
+                ).fetchone()
+                if prior is not None:
+                    if prior["request_name"] != payload.name:
+                        raise TextError(
+                            409, "project_request_conflict", "创建请求内容不同，请核对原请求"
+                        )
+                    return get_project(UUID(prior["project_id"]))
             connection.execute(
                 "INSERT INTO projects VALUES (:id, :name, :created_at, :updated_at)", project
             )
-        return project
+            if payload.request_id is not None:
+                connection.execute(
+                    "INSERT INTO project_create_requests VALUES (?, ?, ?)",
+                    (str(payload.request_id), payload.name, project["id"]),
+                )
+        return {**project, "archived": 0}
 
     @application.get("/api/projects/{project_id}")
     def get_project(project_id: UUID) -> dict[str, Any]:
         require_storage()
         with connect(database) as connection:
             row = connection.execute(
-                "SELECT * FROM projects WHERE id = ?", (str(project_id),)
+                "SELECT p.*, (a.project_id IS NOT NULL) AS archived FROM projects p "
+                "LEFT JOIN project_archives a ON a.project_id=p.id WHERE p.id = ?",
+                (str(project_id),),
             ).fetchone()
         if row is None:
             raise HTTPException(404)
@@ -187,10 +220,35 @@ def create_app(
             if cursor.rowcount == 0:
                 raise HTTPException(404)
             row = connection.execute(
-                "SELECT * FROM projects WHERE id = ?", (str(project_id),)
+                "SELECT p.*, (a.project_id IS NOT NULL) AS archived FROM projects p "
+                "LEFT JOIN project_archives a ON a.project_id=p.id WHERE p.id = ?",
+                (str(project_id),),
             ).fetchone()
         assert row is not None
         return dict(row)
+
+    @application.put("/api/projects/{project_id}/archive")
+    def archive_project(project_id: UUID, payload: ArchiveInput) -> dict[str, Any]:
+        require_storage()
+        with connect(database) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            if (
+                connection.execute(
+                    "SELECT id FROM projects WHERE id=?", (str(project_id),)
+                ).fetchone()
+                is None
+            ):
+                raise HTTPException(404)
+            if payload.archived:
+                connection.execute(
+                    "INSERT OR IGNORE INTO project_archives VALUES (?, ?)",
+                    (str(project_id), datetime.now(UTC).isoformat()),
+                )
+            else:
+                connection.execute(
+                    "DELETE FROM project_archives WHERE project_id=?", (str(project_id),)
+                )
+        return get_project(project_id)
 
     application.include_router(
         export_router(database, directory, require_storage, generation_registry)

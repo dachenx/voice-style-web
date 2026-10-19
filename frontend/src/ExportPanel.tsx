@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
-import { messageOf, request } from './api';
+import { ApiError, messageOf, request } from './api';
+import { exportOperation, updateExport, useExportOperation } from './operationCache';
 import type { VersionCatalogue } from './VersionPanel';
 
 type ExportRecord = { id: string; available: boolean; created_at?: string; is_simulated?: boolean;
@@ -9,14 +10,11 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
 }) {
   const [records, setRecords] = useState<ExportRecord[]>([]);
   const [error, setError] = useState('');
-  const [notice, setNotice] = useState('');
-  const [pause, setPause] = useState(0);
+  const { pause, pending, busy, completed, error: operationError, notice } = useExportOperation(projectId);
   const [ack, setAck] = useState(false);
-  const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
   const active = useRef(false);
   const historyGeneration = useRef(0);
-  const pending = useRef<{ body: string; paragraph: string | null } | null>(null);
   const base = `/projects/${projectId}/exports`;
   const token = `${catalog.comparison_token}:${catalog.paragraphs.map(p => p.selection?.revision ?? 0).join(',')}`;
   const selected = catalog.paragraphs.map(p => p.versions.find(v => v.id === p.selection?.version_id));
@@ -29,7 +27,7 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
       if (!abort.signal.aborted && generation === historyGeneration.current) { setRecords(data); setError(''); }
     }).catch(cause => { if (!abort.signal.aborted && generation === historyGeneration.current) setError(`导出历史读取失败：${messageOf(cause)}`); });
     return () => abort.abort();
-  }, [base, refresh]);
+  }, [base, refresh, completed]);
   useEffect(() => {
     active.current = true;
     return () => { active.current = false; };
@@ -37,28 +35,32 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
   const lastToken = useRef(token);
   // A changed comparison invalidates acknowledgement; the control is keyed by token below.
   const acknowledged = lastToken.current === token && ack;
-  const blocked = disabled || busy || !catalog.confirmation_current;
+  const blocked = disabled || busy || !!pending || !catalog.confirmation_current;
   async function create(paragraph: string | null, retry = false) {
-    if (busy) return;
-    const body = retry && pending.current ? pending.current.body : JSON.stringify({
+    const current = exportOperation(projectId);
+    if (current.busy || (!retry && current.pending) || (retry && !current.pending)) return;
+    const body = retry && current.pending ? current.pending.body : JSON.stringify({
       request_id: crypto.randomUUID(), adapter_id: catalog.adapter_id,
       comparison_token: catalog.comparison_token,
       selections: Object.fromEntries(catalog.paragraphs.map(p => [p.id, p.selection?.revision ?? 0])),
       paragraph_id: paragraph, pause_ms: paragraph ? 0 : pause, acknowledge_mismatch: acknowledged,
     });
     historyGeneration.current += 1;
-    pending.current = { body, paragraph };
-    setBusy(true); setError(''); setNotice('');
+    updateExport(projectId, { pending: { body, paragraph }, busy: true, error: '', notice: '' }); setError('');
     try {
       const result = await request<ExportRecord>(base, { method: 'POST', body }, 60000);
+      updateExport(projectId, { pending: null, completed: exportOperation(projectId).completed + 1, notice: '导出已保存，可下载音频与来源记录。' });
       if (!active.current) return;
       historyGeneration.current += 1;
-      pending.current = null;
       setRecords(old => [result, ...old.filter(item => item.id !== result.id)]);
-      setNotice('导出已保存，可下载音频与来源记录。');
     } catch (cause) {
-      if (active.current) setError(`导出结果需要核对：${messageOf(cause)} 可刷新历史，或重试同一请求。`);
-    } finally { if (active.current) setBusy(false); }
+      const rejected = cause instanceof ApiError && ['invalid_input', 'export_inputs_changed', 'export_unconfirmed', 'export_empty', 'export_missing', 'export_acknowledgement', 'export_too_long', 'export_source_changed'].includes(cause.code);
+      updateExport(projectId, {
+        ...(rejected ? { pending: null } : {}),
+        error: rejected ? `导出未创建：${messageOf(cause)} 请修正后重新导出。`
+          : `导出结果需要核对：${messageOf(cause)} 可刷新历史，或重试同一请求。`,
+      });
+    } finally { updateExport(projectId, { busy: false }); }
   }
   return <section className="paragraph-versions" aria-label="拼接与导出">
     <h3>拼接与导出</h3>
@@ -67,8 +69,8 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
       {selected[i]?.stale_reasons.map(reason => <p className="field-hint" key={reason}>{reason}</p>)}
       <button className="text-button" disabled={blocked || !selected[i]?.available || (selected[i]?.comparison !== 'matching' && !acknowledged)}
         onClick={() => void create(p.id)}>导出第 {i + 1} 段 WAV</button></li>)}</ol>
-    <label>段间新增静音（毫秒，0–2000）<input type="number" min={0} max={2000} step={10} value={pause} disabled={busy}
-      onChange={e => setPause(Number(e.target.value))} /></label>
+    <label>段间新增静音（毫秒，0–2000）<input type="number" min={0} max={2000} step={10} value={pause} disabled={busy || !!pending}
+      onChange={e => updateExport(projectId, { pause: Number(e.target.value) })} /></label>
     {mismatch && catalog.confirmation_current && <label key={token}><input type="checkbox" checked={acknowledged} disabled={busy} onChange={e => { lastToken.current = token; setAck(e.target.checked); }} />我已核对，仍导出过时或无法核定的选用版本</label>}
     {!catalog.confirmation_current && <p className="field-hint">请先确认已保存文案，再创建导出。</p>}
     {missing && <p className="field-hint">整篇缺少可用选用音频，请在上方逐段选用；已就绪段可单独导出。</p>}
@@ -76,7 +78,9 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
     <div className="task-actions"><button className="button secondary" disabled={blocked || missing || (mismatch && !acknowledged) || !Number.isInteger(pause) || pause < 0 || pause > 2000}
       onClick={() => void create(null)}>导出整篇 WAV</button>
       <button className="text-button" disabled={busy} onClick={() => setRefresh(v => v + 1)}>刷新导出历史</button>
-      {pending.current && <button className="text-button" disabled={busy || disabled} onClick={() => void create(pending.current!.paragraph, true)}>重试同一导出请求</button>}</div>
+      {pending && <button className="text-button" disabled={busy} onClick={() => void create(pending!.paragraph, true)}>重试同一导出请求</button>}</div>
+    {pending && <p className="field-hint">有待核对的导出请求，已固定当时的输入，新导出暂不可用。可重试同一请求或刷新历史；本窗口切项目或刷新组件会保留，刷新整个页面前请先核对历史。</p>}
+    {operationError && <p role="alert" className="error-box">{operationError}</p>}
     {error && <p role="alert" className="error-box">{error}</p>}
     <p role="status" aria-label="导出操作状态">{notice}</p>
     <h4>已保存导出</h4>

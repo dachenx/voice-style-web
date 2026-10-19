@@ -1,6 +1,7 @@
 export type Project = {
   id: string;
   name: string;
+  archived?: number | boolean;
   created_at: string;
   updated_at: string;
 };

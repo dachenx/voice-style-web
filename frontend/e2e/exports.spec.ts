@@ -103,19 +103,25 @@ test('迟到的旧历史不覆盖已成功的新导出', async ({ page }) => {
   const barrier = new Promise<void>(resolve => { release = resolve; });
   let captured!: () => void;
   const capturedResponse = new Promise<void>(resolve => { captured = resolve; });
+  let released!: () => void;
+  const releasedResponse = new Promise<void>(resolve => { released = resolve; });
   let held = false;
   await page.route(`**/api/projects/${id}/exports`, async route => {
     if (route.request().method() === 'GET' && !held) {
       held = true; const response = await route.fetch(); captured(); await barrier;
-      await route.fulfill({ response });
+      await route.fulfill({ response }); released();
     } else await route.continue();
   });
   await panel(page).getByRole('button', { name: '刷新导出历史' }).click();
   await capturedResponse;
+  const fresh = page.waitForResponse(r => r.url().endsWith(`/projects/${id}/exports`) && r.request().method() === 'GET' && r.ok());
   await panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true }).click();
   await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveCount(1);
-  const response = page.waitForResponse(r => r.url().endsWith(`/projects/${id}/exports`) && r.request().method() === 'GET');
-  release(); await response;
+  // Completion refresh may abort the obsolete GET; wait for the held route to finish.
+  const authoritative = await (await fresh).json() as { id: string }[];
+  expect(authoritative).toHaveLength(1);
+  await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveAttribute('href', `/api/projects/${id}/exports/${authoritative[0].id}/audio`);
+  release(); await releasedResponse;
   await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveCount(1);
 });
 

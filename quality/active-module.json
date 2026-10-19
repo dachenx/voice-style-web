@@ -1,22 +1,35 @@
 {
   "id": "M07",
-  "title": "M07 启动体验补充",
-  "base_commit": "958b2200d2ca8f44e8f48bb39c09240645dca2c4",
+  "title": "M07 可用性修复：项目整理与操作恢复",
+  "base_commit": "9f331c94bfb53d71d2da5106ccf875115d24b460",
   "allowed_paths": [
     "quality/active-module.json",
-    "scripts/dev.py",
-    "backend/tests/test_dev_startup.py",
+    "backend/app/main.py",
+    "backend/app/migrations/007_project_lifecycle.sql",
+    "backend/tests/test_project_lifecycle.py",
+    "frontend/src/App.tsx",
+    "frontend/src/api.ts",
+    "frontend/src/TextPanel.tsx",
+    "frontend/src/ExportPanel.tsx",
+    "frontend/src/operationCache.ts",
+    "frontend/e2e/usability.spec.ts",
     "docs/快速使用指南.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-startup.json"
+    "docs/reviews/M07-usability.json",
+    "backend/tests/test_api.py",
+    "backend/tests/test_versions.py",
+    "backend/tests/test_model_inputs.py",
+    "backend/tests/test_references.py",
+    "backend/tests/test_text_documents.py",
+    "frontend/e2e/exports.spec.ts"
   ],
   "acceptance": [
-    "开发启动复用本机Node配置，构建模式不依赖Node",
-    "预检依赖和端口，不停止非自有服务",
-    "健康与页面就绪后提示地址，可选打开浏览器",
-    "启动失败超时退出并回收自有进程，保留数据",
-    "必要定向验证与真实独立补审，仅本地提交"
+    "可恢复归档与恢复，保留任务和全部资料",
+    "创建请求同ID幂等且同名合法，未知结果固定请求重试",
+    "复制确认与误删撤销，失败读取不伪装加载",
+    "导出未知请求和静音跨重挂保留，禁止覆盖未决请求",
+    "隔离专项和独立审查，仅本地提交"
   ],
   "checks": [
     {
@@ -41,5 +54,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-startup.json"
+  "review": "docs/reviews/M07-usability.json"
 }

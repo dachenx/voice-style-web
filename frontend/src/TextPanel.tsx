@@ -23,6 +23,7 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
   const [busy, setBusy] = useState(false);
+  const [undo, setUndo] = useState<{ paragraph: Paragraph; index: number; kind: 'copy' | 'delete'; copied?: string } | null>(null);
   const [ack, setAck] = useState(false);
   const [history, setHistory] = useState<Pick<Confirmation, 'id' | 'revision' | 'created_at'>[]>([]);
   const [historyLoaded, setHistoryLoaded] = useState(false);
@@ -79,7 +80,7 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
         ...(kind === 'reload' ? {} : { body: JSON.stringify(kind === 'save' ? { ...contentOf(doc!), expected_revision: doc!.revision } : { expected_revision: doc!.revision, acknowledged: true }) }),
       });
       if (abort.signal.aborted || version !== operation.current) return;
-      setDoc(value); setSaved(JSON.stringify(contentOf(value))); setAck(false);
+      setDoc(value); setSaved(JSON.stringify(contentOf(value))); setAck(false); setUndo(null);
       setNotice(kind === 'save' ? '文案已保存，请核对后人工确认。' : kind === 'confirm' ? '文案已确认。' : '已载入服务器版本。');
       if (kind !== 'reload') onChanged();
       // The confirmation is already committed; this independent read must not undo its success.
@@ -121,7 +122,7 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
     <div className="reference-heading"><div><span className="eyebrow">TEXT WORKSPACE</span><h2>文案与人工确认</h2><p>普通话原稿 → 武汉话草稿 → 人工确认。请核对原意、数字、专名与读音。</p></div></div>
     {error && <p className="error-box" role="alert">{error}</p>}
     <div className="text-actions"><button className="text-button" disabled={busy} onClick={() => void perform('reload')}>重新载入服务器版本</button></div>
-    {!doc ? <p className="muted">正在读取文案…</p> : <>
+    {!doc ? <p className="muted">{error ? '文案未能读取，请点击“重新载入服务器版本”重试。' : '正在读取文案…'}</p> : <>
       <div className="text-language">源语言：普通话（zh-CN） <span>目标：武汉话（wuhan）</span><span>已保存版本：{doc.revision}</span></div>
       <fieldset disabled={busy} className="text-fields">
         <div className="text-pair"><label>语体<input value={doc.register} onChange={(e) => edit((d) => ({ ...d, register: e.target.value }))} /></label><label>术语备注<textarea value={doc.terms} onChange={(e) => edit((d) => ({ ...d, terms: e.target.value }))} /></label></div>
@@ -130,12 +131,27 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
           <div className="text-paragraph-heading"><h3>第 {index + 1} 段</h3><div className="text-actions">
             <button className="text-button" disabled={index === 0} onClick={() => edit((d) => { const paragraphs = [...d.paragraphs]; [paragraphs[index - 1], paragraphs[index]] = [paragraphs[index], paragraphs[index - 1]]; return { ...d, paragraphs }; })}>上移</button>
             <button className="text-button" disabled={index === doc.paragraphs.length - 1} onClick={() => edit((d) => { const paragraphs = [...d.paragraphs]; [paragraphs[index + 1], paragraphs[index]] = [paragraphs[index], paragraphs[index + 1]]; return { ...d, paragraphs }; })}>下移</button>
-            <button className="text-button" onClick={() => edit((d) => ({ ...d, paragraphs: d.paragraphs.filter((p) => p.id !== paragraph.id) }))}>删除段落</button>
+            <button className="text-button" onClick={() => { setUndo({ paragraph, index, kind: 'delete' }); edit((d) => ({ ...d, paragraphs: d.paragraphs.filter((p) => p.id !== paragraph.id) })); }}>删除段落</button>
           </div></div>
           <div className="text-pair">{(['original_text', 'draft_text'] as const).map((field) => <label key={field}>{field === 'original_text' ? '普通话原稿' : '武汉话草稿'}<textarea aria-label={field === 'original_text' ? '普通话原稿' : '武汉话草稿'} aria-describedby={`${paragraph.id}-${field}-count`} rows={5} value={paragraph[field]} onChange={(e) => edit((d) => ({ ...d, paragraphs: d.paragraphs.map((p) => p.id === paragraph.id ? { ...p, [field]: e.target.value } : p) }))} /><small id={`${paragraph.id}-${field}-count`}>{length(paragraph[field])} / 5000 字</small></label>)}</div>
-          <button className="text-button" onClick={() => edit((d) => ({ ...d, paragraphs: d.paragraphs.map((p) => p.id === paragraph.id ? { ...p, draft_text: p.original_text } : p) }))}>复制原稿到草稿</button>
+          <button className="text-button" onClick={() => {
+            if (paragraph.draft_text && paragraph.draft_text !== paragraph.original_text && !window.confirm('这会覆盖本段已有草稿，是否继续？取消会保留人工修改。')) return;
+            setUndo({ paragraph, index, kind: 'copy', copied: paragraph.original_text });
+            edit((d) => ({ ...d, paragraphs: d.paragraphs.map((p) => p.id === paragraph.id ? { ...p, draft_text: p.original_text } : p) }));
+          }}>复制原稿到草稿</button>
           <label className="pronunciation-label">读音备注<textarea rows={2} value={paragraph.pronunciation_note} onChange={(e) => edit((d) => ({ ...d, paragraphs: d.paragraphs.map((p) => p.id === paragraph.id ? { ...p, pronunciation_note: e.target.value } : p) }))} /></label>
         </article>)}
+        {undo && <div className="field-hint">可撤销最近一次复制或删除（仅当前项目页面，保存或重载后清除）。
+          <button className="text-button" onClick={() => {
+            const previous = undo;
+            const existing = doc.paragraphs.find(p => p.id === previous.paragraph.id);
+            if (previous.kind === 'copy' && existing?.draft_text !== previous.copied && !window.confirm('复制后草稿又有修改，撤销会恢复复制前的草稿，是否继续？')) return;
+            edit(d => { const paragraphs = [...d.paragraphs]; const at = paragraphs.findIndex(p => p.id === previous.paragraph.id);
+              if (at >= 0) paragraphs[at] = previous.kind === 'copy' ? { ...paragraphs[at], draft_text: previous.paragraph.draft_text } : previous.paragraph;
+              else paragraphs.splice(Math.min(previous.index, paragraphs.length), 0, previous.paragraph);
+              return { ...d, paragraphs }; });
+            setUndo(null);
+          }}>撤销最近一次复制或删除</button></div>}
         <button className="button secondary" disabled={doc.paragraphs.length >= 200} onClick={() => edit((d) => ({ ...d, paragraphs: [...d.paragraphs, { id: crypto.randomUUID(), original_text: '', draft_text: '', pronunciation_note: '' }] }))}>添加段落</button>
       </fieldset>
       {invalid && <p role="alert" className="invalid">{invalid}</p>}
