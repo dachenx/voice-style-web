@@ -240,3 +240,72 @@ test('返回有缓存项目时读取延迟或失败仍展示本地稿，重载�
   await expect(page.getByLabel('武汉话草稿', { exact: true })).toHaveValue('今天我们克汉口。');
   await expect(page.getByRole('button', { name: '保存文案', exact: true })).toBeDisabled();
 });
+
+async function seedParagraphLimit(page: Page, count: number) {
+  const project = await (await page.request.post('/api/projects', { data: { name: '段落上限验证' } })).json();
+  const paragraphs = Array.from({ length: count }, (_, i) => ({ id: crypto.randomUUID(), original_text: `原稿${i}`, draft_text: `草稿${i}`, pronunciation_note: `备注${i}` }));
+  expect((await page.request.put(`/api/projects/${project.id}/text`, { data: {
+    expected_revision: 0, source_language: 'zh-CN', target_language: 'wuhan', register: '', terms: '', paragraphs,
+  } })).ok()).toBeTruthy();
+  await page.goto(`/#project=${project.id}`);
+  await expect(page.locator('[data-paragraph-id]')).toHaveCount(count);
+  return { id: project.id, paragraphs };
+}
+
+test('200段删除预留撤销位置，保存失败仍可完整恢复，成功保存才释放', async ({ page }) => {
+  const { id, paragraphs } = await seedParagraphLimit(page, 200);
+  const removed = paragraphs[100];
+  await page.locator(`[data-paragraph-id="${removed.id}"]`).getByRole('button', { name: '删除段落' }).click();
+  await expect(page.locator('[data-paragraph-id]')).toHaveCount(199);
+  await expect(page.getByRole('button', { name: '添加段落', exact: true })).toBeDisabled();
+  await expect(page.getByText('已为待撤销的段落保留一个位置', { exact: false })).toBeVisible();
+  await page.getByLabel('武汉话草稿', { exact: true }).first().fill('其他编辑保留');
+  let fail = true;
+  await page.route(`**/api/projects/${id}/text`, async route => {
+    if (route.request().method() === 'PUT' && fail) await route.fulfill({ status: 503, json: { error: { message: '注入保存失败' } } });
+    else await route.continue();
+  });
+  await page.getByRole('button', { name: '保存文案', exact: true }).click();
+  await expect(page.getByRole('region', { name: '文案工作台' }).getByRole('alert')).toContainText('注入保存失败');
+  await expect(page.getByRole('button', { name: '添加段落', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '撤销最近一次复制或删除' }).click();
+  await expect(page.locator('[data-paragraph-id]')).toHaveCount(200);
+  expect(await page.locator('[data-paragraph-id]').evaluateAll(nodes => nodes.map(node => node.getAttribute('data-paragraph-id')))).toEqual(paragraphs.map(p => p.id));
+  const restored = page.locator(`[data-paragraph-id="${removed.id}"]`);
+  await expect(restored.getByLabel('普通话原稿', { exact: true })).toHaveValue(removed.original_text);
+  await expect(restored.getByLabel('武汉话草稿', { exact: true })).toHaveValue(removed.draft_text);
+  await expect(restored.getByRole('textbox', { name: '读音备注', exact: true })).toHaveValue(removed.pronunciation_note);
+  fail = false; await save(page);
+  const stored = await (await page.request.get(`/api/projects/${id}/text`)).json();
+  expect(stored.paragraphs).toEqual(paragraphs.map((p, i) => i === 0 ? { ...p, draft_text: '其他编辑保留' } : p));
+  await restored.getByRole('button', { name: '删除段落' }).click();
+  await save(page);
+  await expect(page.getByRole('button', { name: '撤销最近一次复制或删除' })).toHaveCount(0);
+  await expect(page.getByRole('button', { name: '添加段落', exact: true })).toBeEnabled();
+  expect((await (await page.request.get(`/api/projects/${id}/text`)).json()).paragraphs).toHaveLength(199);
+});
+
+test('199段删除后可加一段并撤销到200，新增内容及复制撤销不受损', async ({ page }) => {
+  const { id, paragraphs } = await seedParagraphLimit(page, 199);
+  await page.locator(`[data-paragraph-id="${paragraphs[100].id}"]`).getByRole('button', { name: '删除段落' }).click();
+  await page.getByRole('button', { name: '添加段落', exact: true }).click();
+  await expect(page.locator('[data-paragraph-id]')).toHaveCount(199);
+  const added = page.locator('[data-paragraph-id]').last();
+  const newId = await added.getAttribute('data-paragraph-id');
+  await added.getByLabel('普通话原稿', { exact: true }).fill('新增原稿');
+  await added.getByLabel('武汉话草稿', { exact: true }).fill('新增草稿');
+  await expect(page.getByRole('button', { name: '添加段落', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '撤销最近一次复制或删除' }).click();
+  await expect(page.locator('[data-paragraph-id]')).toHaveCount(200);
+  await save(page);
+  const stored = await (await page.request.get(`/api/projects/${id}/text`)).json();
+  expect(stored.paragraphs).toEqual([...paragraphs, { id: newId, original_text: '新增原稿', draft_text: '新增草稿', pronunciation_note: '' }]);
+  // A copy undo updates an existing paragraph; it must not consume a deletion slot.
+  await added.getByRole('button', { name: '删除段落' }).click(); await save(page);
+  const first = page.locator('[data-paragraph-id]').first();
+  page.once('dialog', dialog => dialog.accept());
+  await first.getByRole('button', { name: '复制原稿到草稿' }).click();
+  await expect(page.getByRole('button', { name: '添加段落', exact: true })).toBeEnabled();
+  await page.getByRole('button', { name: '撤销最近一次复制或删除' }).click();
+  await expect(first.getByLabel('武汉话草稿', { exact: true })).toHaveValue(paragraphs[0].draft_text);
+});

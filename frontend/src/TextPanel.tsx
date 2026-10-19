@@ -41,6 +41,8 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
   const invalid = doc ? validation(doc) : null;
   const complete = !!doc?.paragraphs.length && doc.paragraphs.every((p) => p.original_text.trim() && p.draft_text.trim());
   const current = !!doc?.confirmation_current && !dirty;
+  const reservedUndoSlot = undo?.kind === 'delete' && !doc?.paragraphs.some(p => p.id === undo.paragraph.id) ? 1 : 0;
+  const additionBlocked = !!doc && doc.paragraphs.length + reservedUndoSlot >= 200;
 
   useEffect(() => {
     if (doc && dirty) pendingDrafts.set(projectId, { doc, saved });
@@ -145,6 +147,7 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
           <button className="text-button" onClick={() => {
             const previous = undo;
             const existing = doc.paragraphs.find(p => p.id === previous.paragraph.id);
+            if (!existing && doc.paragraphs.length >= 200) { setError('最多保存 200 段，暂不能恢复；待撤销内容已保留。'); return; }
             if (previous.kind === 'copy' && existing?.draft_text !== previous.copied && !window.confirm('复制后草稿又有修改，撤销会恢复复制前的草稿，是否继续？')) return;
             edit(d => { const paragraphs = [...d.paragraphs]; const at = paragraphs.findIndex(p => p.id === previous.paragraph.id);
               if (at >= 0) paragraphs[at] = previous.kind === 'copy' ? { ...paragraphs[at], draft_text: previous.paragraph.draft_text } : previous.paragraph;
@@ -152,7 +155,11 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
               return { ...d, paragraphs }; });
             setUndo(null);
           }}>撤销最近一次复制或删除</button></div>}
-        <button className="button secondary" disabled={doc.paragraphs.length >= 200} onClick={() => edit((d) => ({ ...d, paragraphs: [...d.paragraphs, { id: crypto.randomUUID(), original_text: '', draft_text: '', pronunciation_note: '' }] }))}>添加段落</button>
+        {!!reservedUndoSlot && additionBlocked && <p className="field-hint">已为待撤销的段落保留一个位置（最多 200 段）。请先撤销，或保存当前删除后再添加。</p>}
+        <button className="button secondary" disabled={additionBlocked} onClick={() => {
+          if (additionBlocked) return;
+          edit((d) => ({ ...d, paragraphs: [...d.paragraphs, { id: crypto.randomUUID(), original_text: '', draft_text: '', pronunciation_note: '' }] }));
+        }}>添加段落</button>
       </fieldset>
       {invalid && <p role="alert" className="invalid">{invalid}</p>}
       {doc.conversion_warnings.map((warning, index) => <p className="muted" key={index}>{warning}</p>)}

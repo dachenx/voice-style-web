@@ -1,20 +1,19 @@
 {
   "id": "M07",
-  "title": "M07 导出历史核对恢复",
-  "base_commit": "077964bf21782f1b1dbb927fae02fb19906cc0c3",
+  "title": "M07 段落撤销上限保护",
+  "base_commit": "2e1aa1288614250d58bbc292fe80e5dec91541e1",
   "allowed_paths": [
     "quality/active-module.json",
-    "frontend/src/ExportPanel.tsx",
-    "frontend/e2e/exports.spec.ts",
-    "frontend/e2e/usability.spec.ts",
+    "frontend/src/TextPanel.tsx",
+    "frontend/e2e/text.spec.ts",
     "docs/快速使用指南.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-export-reconcile.json"
+    "docs/reviews/M07-undo-limit.json"
   ],
   "acceptance": [
-    "历史中同项目同请求且内容指纹一致的可用成品解除待核对，无额外POST",
-    "忙碌、缺失、损坏、指纹冲突及过期响应不解除，保留原请求和停顿"
+    "当前段落与可恢复删除段合计最多200，撤销不自动删除其他内容",
+    "保存失败保留撤销；成功保存按既有规则释放；原UUID和内容顺序保持"
   ],
   "checks": [
     {
@@ -39,5 +38,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-export-reconcile.json"
+  "review": "docs/reviews/M07-undo-limit.json"
 }
