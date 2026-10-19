@@ -126,7 +126,7 @@ test('列表失败显示错误与重试，恢复后读取真实数据', async ({
   await page.goto('/');
   await expect(page.getByRole('alert')).toContainText('本地存储暂不可用');
   await expect(page.getByText('连接异常')).toBeVisible();
-  await expect(page.getByText('第一个项目，从这里开始')).not.toBeVisible();
+  await expect(page.getByText('暂无活跃项目')).not.toBeVisible();
   await page.unroute('**/api/projects');
   await page.getByRole('button', { name: '重试', exact: true }).click();
   await expect(page.getByText('本地服务已连接')).toBeVisible();
@@ -139,4 +139,30 @@ test('不存在的项目链接显示明确错误且可以返回列表', async ({
   await page.getByRole('link', { name: '关闭项目详情' }).click();
   await expect(page.getByRole('region', { name: '项目详情' })).not.toBeVisible();
   await expect(page.getByRole('button', { name: '新建项目' })).toBeVisible();
+});
+
+
+test('空分类有准确说明和可用入口，读取失败不显示空态', async ({ page }) => {
+  let failed = false;
+  await page.route('**/api/projects*', async (route) => {
+    if (route.request().method() !== 'GET') return route.continue();
+    await route.fulfill({ status: failed ? 503 : 200, contentType: 'application/json',
+      body: JSON.stringify(failed ? { error: { message: '测试列表读取失败' } } : { projects: [] }) });
+  });
+  await page.goto('/');
+  await expect(page.getByRole('region', { name: '使用流程指南' })).toContainText('这是操作流程');
+  const list = page.getByRole('region', { name: '项目列表' });
+  await expect(list.getByRole('heading', { name: '暂无活跃项目' })).toBeVisible();
+  await list.getByRole('button', { name: '创建项目', exact: true }).click();
+  await expect(page.getByRole('dialog')).toBeVisible();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '已归档', exact: true }).click();
+  await expect(list.getByRole('heading', { name: '暂无归档项目' })).toBeVisible();
+  await expect(list.getByRole('button', { name: '创建项目', exact: true })).toHaveCount(0);
+  await list.getByRole('button', { name: '查看活跃项目' }).click();
+  await expect(list.getByRole('heading', { name: '暂无活跃项目' })).toBeVisible();
+  failed = true;
+  await page.getByRole('button', { name: '刷新项目列表' }).click();
+  await expect(page.getByRole('alert')).toContainText('测试列表读取失败');
+  await expect(list.getByText('暂无活跃项目')).toHaveCount(0);
 });

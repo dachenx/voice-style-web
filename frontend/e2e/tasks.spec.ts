@@ -169,16 +169,22 @@ async function rendered(page: Page) {
 test('无参考、未确认和未保存稿均禁提交，完成核对后才可模拟生成', async ({ page }) => {
   const value = await seed(page, '模拟生成输入门槛', { reference: false, confirmed: false });
   await open(page, value);
+  const next = page.getByRole('status', { name: '生成环节下一步' });
+  await expect(next).toContainText('人工确认');
+  await expect(page.getByText('为项目加入参考声音', { exact: true })).toHaveCount(0);
   await expect(submitButton(page, 'preview')).toBeDisabled();
   await expect(submitButton(page, 'full')).toBeDisabled();
   await page.getByRole('checkbox').check();
   await page.getByRole('button', { name: '确认当前文案', exact: true }).click();
   await expect(page.getByRole('status', { name: '文案操作状态' })).toContainText('文案已确认');
   await expect(submitButton(page, 'full')).toBeDisabled();
+  await expect(next).toContainText('保存并选择当前片段');
   await addReference(page, value.id);
   await panel(page).getByRole('button', { name: '刷新参考与组件', exact: true }).click();
   await expect(submitButton(page, 'full')).toBeEnabled();
+  await expect(next).toContainText('当前生成输入已就绪');
   await page.getByLabel('武汉话草稿', { exact: true }).first().fill('尚未保存的任务输入');
+  await expect(next).toContainText('有未保存文案');
   await expect(submitButton(page, 'preview')).toBeDisabled();
   await expect(submitButton(page, 'full')).toBeDisabled();
   await page.getByRole('button', { name: '保存文案', exact: true }).click();
@@ -293,6 +299,7 @@ test('服务器已入队但响应丢失时核对重放原请求，不重复建�
   await page.reload();
   const retry = panel(page).getByRole('button', { name: '核对并重试上次提交', exact: true });
   await expect(retry).toBeEnabled();
+  await expect(page.getByRole('status', { name: '生成环节下一步' })).toContainText('上次提交结果未知');
   const replayResponse = page.waitForResponse((response) => response.request().method() === 'POST'
     && new URL(response.url()).pathname === `/api/projects/${value.id}/tasks`);
   await retry.click();
@@ -317,6 +324,8 @@ test('任务读取失败可主动恢复，迟到的真实旧列表不能删除�
   });
   await open(page, value);
   await expect(panel(page).getByRole('alert')).toContainText('任务列表暂不可读取');
+  await expect(page.getByRole('status', { name: '生成环节下一步' })).toContainText('任务状态读取失败');
+  await expect(panel(page).getByText('尚无生成任务。', { exact: true })).toHaveCount(0);
   await page.unroute(url);
   await panel(page).getByRole('button', { name: '刷新任务', exact: true }).click();
   await expect(panel(page).getByRole('alert')).toHaveCount(0);
@@ -335,6 +344,9 @@ test('任务读取失败可主动恢复，迟到的真实旧列表不能删除�
   await rendered(page);
   await expect(card(page, created.id)).toBeVisible();
   await succeeded(page, value.id, created.id);
+  await expect(page.getByRole('status', { name: '生成环节下一步' })).toContainText('请在版本区核对是否匹配当前稿');
+  await page.getByLabel('武汉话草稿', { exact: true }).first().fill('生成成功后修改的新稿');
+  await expect(page.getByRole('status', { name: '生成环节下一步' })).toContainText('有未保存文案');
 });
 
 test('其他窗口切换当前参考后拒绝旧选择入队，主动核对后使用新参考', async ({ page }) => {
@@ -347,6 +359,8 @@ test('其他窗口切换当前参考后拒绝旧选择入队，主动核对后�
   await submitButton(page, 'full').click();
   expect((await rejected).status()).toBe(409);
   await expect(panel(page).getByRole('alert')).toBeVisible();
+  await expect(page.getByRole('status', { name: '生成环节下一步' })).toContainText('上次任务操作有错误');
+  await expect(page.getByRole('status', { name: '生成环节下一步' })).not.toContainText('输入已就绪');
   expect((await taskList(page, value.id)).tasks).toHaveLength(0);
   await panel(page).getByRole('button', { name: '刷新参考与组件', exact: true }).click();
   const created = await submit(page, value.id, 'full');
@@ -436,4 +450,33 @@ test('切换项目后迟到的任务提交与读取不会污染新项目', async
   await expect(panel(page).locator('article[data-task-id]')).toHaveCount(0);
   await expect(panel(page).getByRole('region', { name: '任务输入快照' })).toHaveCount(0);
   expect((await taskList(page, first.id)).tasks.map((task) => task.id)).toEqual([taskId]);
+});
+
+
+test('生成引导区分项目在途、工作进程错误和取消历史', async ({ page }) => {
+  const value = await seed(page, '生成引导状态');
+  const task = { id: randomUUID(), project_id: value.id, mode: 'full', state: 'queued', state_version: 1,
+    is_simulated: true, retry_of: null, completed_paragraphs: 0, total_paragraphs: 2,
+    created_at: new Date().toISOString(), phase: 'queued', error: null, result: null,
+    adapter: { id: 'simulated-tone', version: '1' } };
+  let workerError = false;
+  await page.route(`**/api/projects/${value.id}/tasks`, async (route) => {
+    await route.fulfill({ json: { tasks: [task], worker: { state: workerError ? 'failed' : 'idle',
+      error: workerError ? { message: '测试工作进程故障' } : null } } });
+  });
+  await open(page, value);
+  const next = page.getByRole('status', { name: '生成环节下一步' });
+  await expect(next).toContainText('本项目有 1 个排队或运行任务');
+  task.state = 'running'; task.phase = 'generating'; task.state_version++;
+  task.completed_paragraphs = 1;
+  await panel(page).getByRole('button', { name: '刷新任务', exact: true }).click();
+  await expect(card(page, task.id).getByRole('progressbar')).toHaveAttribute('value', '1');
+  await expect(next).toContainText('本项目有 1 个排队或运行任务');
+  workerError = true;
+  await panel(page).getByRole('button', { name: '刷新任务', exact: true }).click();
+  await expect(next).toContainText('工作进程不可用');
+  workerError = false; task.state = 'canceled'; task.phase = 'canceled'; task.state_version++;
+  await panel(page).getByRole('button', { name: '刷新任务', exact: true }).click();
+  await expect(next).toContainText('失败或取消原因');
+  await expect(next).not.toContainText('本项目有');
 });

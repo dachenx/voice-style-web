@@ -1,19 +1,21 @@
 {
   "id": "M07",
-  "title": "M07 段落撤销上限保护",
-  "base_commit": "2e1aa1288614250d58bbc292fe80e5dec91541e1",
+  "title": "M07 流程与状态提示",
+  "base_commit": "7d7785ed4b327145db6e0d5b2440a6ae0fe3d40a",
   "allowed_paths": [
     "quality/active-module.json",
-    "frontend/src/TextPanel.tsx",
-    "frontend/e2e/text.spec.ts",
+    "frontend/src/App.tsx",
+    "frontend/src/TaskPanel.tsx",
+    "frontend/e2e/projects.spec.ts",
+    "frontend/e2e/tasks.spec.ts",
     "docs/快速使用指南.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-undo-limit.json"
+    "docs/reviews/M07-progress.json"
   ],
   "acceptance": [
-    "当前段落与可恢复删除段合计最多200，撤销不自动删除其他内容",
-    "保存失败保留撤销；成功保存按既有规则释放；原UUID和内容顺序保持"
+    "静态流程与当前状态分开，空态按分类且读取失败不称空列表",
+    "生成下一步依据当前状态，未知请求与错误优先，不把历史成功或模拟称项目完成"
   ],
   "checks": [
     {
@@ -38,5 +40,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-undo-limit.json"
+  "review": "docs/reviews/M07-progress.json"
 }

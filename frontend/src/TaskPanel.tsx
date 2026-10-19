@@ -88,6 +88,21 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
                 `参考片段超过该模型的 ${adapter.reference_max_duration_ms / 1000} 秒限制，请重新选段。` :
                 real && (!transcript?.ready || transcript.clipId !== selected.clip.id) ? '请填写、核对并保存当前参考片段的准确原话。' : '';
 
+  // This guides only the generation step; history never proves the current draft is complete.
+  const activeTasks = tasks.filter((task) => task.state === 'queued' || task.state === 'running');
+  const nextStep = busy ? '正在处理任务操作，请等待结果。' :
+    pending ? '上次提交结果未知，请先使用“核对并重试上次提交”，不要重复新建任务。' :
+      actionError ? '上次任务操作有错误，请先核对下方“任务操作错误”提示，再按提示刷新或重试。' :
+      listError ? '任务状态读取失败，请使用“刷新任务”核对；已显示记录可能不是最新状态。' :
+        !loaded ? '正在读取任务状态，请稍候。' :
+          worker?.error ? '工作进程不可用，请处理下方错误并重启本地服务后核对；已保存的队列仍保留。' :
+            inputError ? '参考或组件读取失败，请使用“刷新参考与组件”重试。' :
+              textError ? '文案读取或保存出错，请先处理文案工作台中的提示。' :
+                blocked || (activeTasks.length ? `本项目有 ${activeTasks.length} 个排队或运行任务，请在任务记录查看段落进度；生成结果仍需试听。` :
+                  tasks.some((task) => task.state === 'succeeded') ? '已有生成记录。请在版本区核对是否匹配当前稿，试听后逐段选用，再到“拼接与导出”核对缺段和过时提示。模拟音不代表真实配音。' :
+                    tasks.length ? '请查看任务记录中的失败或取消原因。按原输入重试会沿用旧快照；需要新内容时请核对当前文案后提交新任务。' :
+                      '当前生成输入已就绪。可先提交短段测试，也可提交全文；生成后仍需试听并逐段选用。模拟模式只生成测试音。');
+
   useEffect(() => {
     const abort = new AbortController();
     lifetime.current = abort;
@@ -216,6 +231,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
   return <section className="reference-panel task-panel" aria-label={real ? '真实语音与任务' : '模拟生成与任务'}>
     <div className="reference-heading"><div><span className="eyebrow">VOICE GENERATION</span><h2>{real ? '真实语音与任务' : '模拟生成与任务'}</h2>
       <p>{real ? '使用本机模型和当前参考片段生成语音。武汉话、人物相似度和自然度需要生成后逐项试听。' : '仅生成合成测试音，用于验证排队和恢复流程；不会朗读文案、复刻参考声音或生成武汉话。'}</p></div><span className="simulation-badge">{real ? '本机真实模型 · 效果待验' : '模拟模式'}</span></div>
+    <div className="next-step" role="status" aria-label="生成环节下一步"><span className="step-number">生成环节 · 下一步</span><p>{nextStep}</p></div>
     <p className="audio-hint">建议先做短段测试，再将全部段落排队。当前适配器没有语速、情绪或读音备注控制。</p>
     <label className="audio-label" htmlFor={`generation-adapter-${projectId}`}>选择生成组件</label>
     <select id={`generation-adapter-${projectId}`} value={adapterId} disabled={busy || !!pending} onChange={(event) => {
@@ -260,7 +276,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     {worker?.error && <p role="alert" className="error-box">工作进程不可用：{worker.error.message} 队列记录仍保留，请重启本地服务后核对。</p>}
     {listError && <p role="alert" aria-label="任务读取错误" className="error-box">{listError}</p>}
     {!loaded && !listError && <p className="muted">正在读取任务…</p>}
-    {loaded && !tasks.length && <p className="muted">尚无生成任务。</p>}
+    {loaded && !listError && !tasks.length && <p className="muted">尚无生成任务。</p>}
     <div className="task-list">{tasks.map((task) => <article className="task-card" key={task.id} data-task-id={task.id}>
       <div className="task-card-heading"><h4>{task.is_simulated ? '模拟' : '真实语音'}{task.mode === 'preview' ? '短段' : '全文'}任务</h4><strong className={`task-state task-${task.state}`}>{labels[task.state]}</strong></div>
       <p className="audio-hint">{new Date(task.created_at).toLocaleString('zh-CN')} · {task.adapter.id} / {task.adapter.version}</p>

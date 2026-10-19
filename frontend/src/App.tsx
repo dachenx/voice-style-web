@@ -240,10 +240,10 @@ export default function App() {
           <button className="button primary" onClick={() => setEditing({ mode: 'create' })}><Plus size={18} />新建项目</button>
         </section>
 
-        <section className="intro-card" aria-label="工作空间进度">
-          <div className="intro-copy"><span className="pill"><span className="tiny-dot" />从一个项目开始</span>
+        <section className="intro-card" aria-label="使用流程指南">
+          <div className="intro-copy"><span className="pill"><span className="tiny-dot" />使用流程指南</span>
             <h2>把声音的想法，<br />留在这里。</h2>
-            <p>先整理项目，再一步步加入参考声音与文案。<br className="desktop-break" />每次灵感，都有一个可以继续的地方。</p></div>
+            <p>参考声音 → 文案与人工确认 → 生成试听 → 版本选用 → 导出。<br className="desktop-break" />这是操作流程；当前状态请查看各工作区提示。</p></div>
           <div className="sound-art" aria-hidden="true"><div className="orbit orbit-one" /><div className="orbit orbit-two" />
             <div className="sound-card"><div className="sound-card-top"><AudioLines size={17} /><span>VOICE NOTES</span><span className="tiny-dot" /></div>
               <div className="waveform">{[18, 30, 47, 25, 60, 77, 48, 89, 63, 38, 68, 49, 29, 57, 39, 22, 12].map((height, index) => <i key={index} style={{ height }} />)}</div>
@@ -265,8 +265,8 @@ export default function App() {
             {loading && projects.length === 0 ? <div className="empty-state"><LoaderCircle className="spin" size={24} /><p>正在读取本地项目…</p></div> :
               projects.length === 0 && !listError ? <div className="empty-state">
                 <div className="empty-art"><FolderOpen size={33} strokeWidth={1.5} /><span><Plus size={12} /></span></div>
-                <h3>{showArchived ? '暂无归档项目' : '第一个项目，从这里开始'}</h3><p>{showArchived ? '归档仅整理列表，不删除资料或停止任务。' : '为这次配音命名，建立你的声音工作空间。'}</p>
-                <button className="button secondary" onClick={() => setEditing({ mode: 'create' })}>创建第一个项目<ArrowRight size={16} /></button>
+                <h3>{showArchived ? '暂无归档项目' : '暂无活跃项目'}</h3><p>{showArchived ? '归档仅整理列表，不删除资料或停止任务。' : '可以新建项目，或到已归档列表恢复已有项目。'}</p>
+                <button className="button secondary" onClick={() => showArchived ? changeFilter(false) : setEditing({ mode: 'create' })}>{showArchived ? '查看活跃项目' : '创建项目'}<ArrowRight size={16} /></button>
               </div> : <div className="project-cards">{projects.map((project) =>
                 <a key={project.id} className={`project-card ${project.id === selectedId ? 'selected' : ''}`}
                   href={`#project=${project.id}`} aria-current={project.id === selectedId ? 'true' : undefined}>
@@ -288,7 +288,7 @@ export default function App() {
                 {!!detail.project.archived && <p>该项目已归档，仅从活跃列表移出；资料仍可访问，任务不受影响。</p>}
                 <dl className="project-meta"><div><dt>创建时间</dt><dd><time dateTime={detail.project.created_at}>{dateOf(detail.project.created_at)}</time></dd></div>
                   <div><dt>最近更新</dt><dd><time dateTime={detail.project.updated_at}>{dateOf(detail.project.updated_at)}</time></dd></div><div><dt>保存位置</dt><dd>本机</dd></div></dl>
-                <div className="next-step"><span className="step-number">下一步</span><h3>为项目加入参考声音</h3><p>在下方导入音频，试听并选取一段作为当前参考。原件和已保存的片段都会保留。</p></div>
+                <div className="next-step"><span className="step-number">继续操作</span><p>在下方查看参考声音、文案、任务与版本。各工作区会提示需要处理的事项；历史音频不代表当前稿已完成。</p></div>
                 <p className="saved-caption"><Check size={13} />项目信息已保存，刷新或重启后可继续</p>
               </>}
           </section>}
@@ -296,7 +296,7 @@ export default function App() {
         {selectedId && detail.state === 'ready' && <ReferencePanel key={`reference-${selectedId}`} project={detail.project}
           onChanged={contentChanged} />}
         {selectedId && <TextPanel key={`text-${selectedId}`} projectId={selectedId} onChanged={contentChanged} referenceRefresh={refresh} />}
-        <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>项目管理已就绪 · 配音功能逐步开放</span></footer>
+        <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>文案整理 · 生成试听 · 版本选用 · 导出</span></footer>
       </div>
     </main>
     {deleting && <DeleteProjectDialog key={deleting.id} project={deleting} retry={deleteIntent?.id === deleting.id} onClose={() => setDeleting(null)} onRemoved={removed} onPending={setDeleteIntent} />}
