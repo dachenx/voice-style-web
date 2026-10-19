@@ -21,7 +21,7 @@ from .generation import PARAGRAPH_OUTPUT_CONTRACT, GenerationRegistry, TaskError
 from .local_model import LocalCosyVoiceAdapter
 from .references import timestamp
 from .segment_outputs import collect_segments
-from .storage import connect
+from .storage import connect, pending_deletion_ids
 from .tasks import canonical, file_digest, task_from_row, validate_clip
 
 logger = logging.getLogger(__name__)
@@ -98,7 +98,48 @@ class WorkerSession:
                 return
 
     def recover(self) -> None:
+        cleanup_lock = DirectoryLock(self.directory, ".project-cleanup.lock")
+        while True:
+            try:
+                cleanup_lock.acquire()
+                break
+            except BlockingIOError:
+                if self.stop.wait(0.05):
+                    return
+        try:
+            self._recover_locked()
+        finally:
+            cleanup_lock.close()
+
+    def _recover_locked(self) -> None:
         # Caller already owns .worker.lock: a live older worker can never be recovered here.
+        with connect(self.database) as connection:
+            connection.execute("BEGIN IMMEDIATE")
+            succeeded = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT id FROM generation_tasks WHERE state='succeeded'"
+                )
+            }
+        temporary = self.directory / "generation-tmp"
+        pending_tmp = pending_deletion_ids(self.database, "generation-tmp")
+        if temporary.exists():
+            for item in temporary.iterdir():
+                if item.name not in pending_tmp:
+                    if item.is_dir() and not item.is_symlink():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+        root = self.directory / "generation-results"
+        pending_results = pending_deletion_ids(self.database, "generation-results")
+        if root.exists():
+            for item in root.iterdir():
+                if item.name not in succeeded and item.name not in pending_results:
+                    if item.is_dir():
+                        shutil.rmtree(item)
+                    else:
+                        item.unlink()
+
         with connect(self.database) as connection:
             connection.execute("BEGIN IMMEDIATE")
             now = timestamp()
@@ -108,23 +149,6 @@ class WorkerSession:
                 "updated_at=?,finished_at=?,state_version=state_version+1 WHERE state='running'",
                 (now, now),
             )
-            succeeded = {
-                row[0]
-                for row in connection.execute(
-                    "SELECT id FROM generation_tasks WHERE state='succeeded'"
-                )
-            }
-        temporary = self.directory / "generation-tmp"
-        if temporary.exists():
-            shutil.rmtree(temporary)
-        root = self.directory / "generation-results"
-        if root.exists():
-            for item in root.iterdir():
-                if item.name not in succeeded:
-                    if item.is_dir():
-                        shutil.rmtree(item)
-                    else:
-                        item.unlink()
 
     def claim(self) -> dict[str, Any] | None:
         if not self.active:
@@ -194,6 +218,7 @@ class WorkerSession:
         target = self.directory / "generation-results" / task_id
         started = time.monotonic()
         published = False
+        failure: tuple[str, str] | None = None
         try:
             stage.mkdir(parents=True)
             snapshot = task["snapshot"]
@@ -271,12 +296,14 @@ class WorkerSession:
                 )
             else:
                 code, message = "generation_failed", "生成失败，原输入已保留，请重试"
-            self.fail(task_id, code, message)
+            failure = (code, message)
         finally:
             if stage.exists():
                 shutil.rmtree(stage)
             if not published and target.exists():
                 shutil.rmtree(target)
+            if failure is not None:
+                self.fail(task_id, *failure)
             self.state = "idle"
             self.heartbeat()
         return True

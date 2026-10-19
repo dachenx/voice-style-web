@@ -2,13 +2,14 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowDown, ArrowRight, AudioLines, Check, ChevronRight, CircleAlert, Folder,
   FolderOpen, HardDrive, Layers3, LoaderCircle, Pencil, Plus, RefreshCw, X } from 'lucide-react';
 import { ApiError, messageOf, request, validateName, type Project } from './api';
-import { setCreation, useCreation } from './operationCache';
+import { forgetProjectOperations, setCreation, useCreation } from './operationCache';
+import DeleteProjectDialog, { readDeleteIntent } from './DeleteProjectDialog';
 import ReferencePanel from './ReferencePanel';
 import TextPanel from './TextPanel';
 import { pendingDrafts } from './textDraftCache';
 import { transcriptDrafts } from './transcriptDraftCache';
 
-type Detail = { state: 'loading' } | { state: 'error'; message: string } |
+type Detail = { state: 'loading' } | { state: 'error'; message: string; deleted?: boolean } |
   { state: 'ready'; project: Project };
 type Editing = { mode: 'create' } | { mode: 'rename'; project: Project };
 
@@ -54,7 +55,9 @@ function NameDialog({ editing, onDismiss, onSaved }: {
       if (creating) setCreation(null);
       onSaved(project);
     } catch (failure) {
-      if (creating && failure instanceof ApiError && failure.status === 422) setCreation(null);
+      if (creating && failure instanceof ApiError && (failure.status === 422 || failure.code === 'project_deleted')) {
+        setCreation(null); setError(failure.code === 'project_deleted' ? '原创建请求对应的项目已永久删除。可输入名称重新新建，旧项目不会恢复。' : messageOf(failure)); setSaving(false); return;
+      }
       setError(`${messageOf(failure)}${creating ? " 创建结果请核对，重试会沿用原请求，不会重复创建。" : ""}`);
       setSaving(false);
     }
@@ -106,6 +109,8 @@ export default function App() {
   const [editing, setEditing] = useState<Editing | null>(null);
   const [notice, setNotice] = useState('');
   const [showArchived, setShowArchived] = useState(false);
+  const [deleting, setDeleting] = useState<Project | null>(null);
+  const [deleteIntent, setDeleteIntent] = useState(readDeleteIntent);
   const [archiving, setArchiving] = useState(false);
   const writeEpoch = useRef(0);
 
@@ -137,7 +142,7 @@ export default function App() {
         if (!controller.signal.aborted && epoch === writeEpoch.current) setDetail({ state: 'ready', project });
       })
       .catch((error: unknown) => {
-        if (!controller.signal.aborted && epoch === writeEpoch.current) setDetail({ state: 'error', message: messageOf(error) });
+        if (!controller.signal.aborted && epoch === writeEpoch.current) setDetail({ state: 'error', message: messageOf(error), deleted: error instanceof ApiError && error.code === 'project_deleted' });
       });
     return () => controller.abort();
   }, [selectedId, refresh]);
@@ -181,6 +186,24 @@ export default function App() {
     } catch (cause) {
       setNotice(`项目整理结果需要核对：${messageOf(cause)} 请刷新列表核对；归档与恢复按按钮标明的目标执行。`);
     } finally { setArchiving(false); setRefresh(v => v + 1); }
+  }
+
+  function startDelete(project: Project) {
+    if (deleteIntent && deleteIntent.id !== project.id) { setNotice('请先核对上一次删除，再删除其他项目。'); return; }
+    if (pendingDrafts.has(project.id) || [...transcriptDrafts.keys()].some(key => key.startsWith(`${project.id}:`))) {
+      setNotice('有未保存文案或参考原话，请先保存或明确重新载入后再删除。'); return;
+    }
+    setDeleting(project);
+  }
+  function removed(id: string, complete: boolean) {
+    writeEpoch.current += 1;
+    pendingDrafts.delete(id);
+    for (const key of transcriptDrafts.keys()) if (key.startsWith(`${id}:`)) transcriptDrafts.delete(key);
+    forgetProjectOperations(id);
+    setProjects(items => items.filter(p => p.id !== id));
+    if (getSelectedId() === id) { window.location.hash = ''; setSelectedId(null); }
+    setRefresh(v => v + 1);
+    setNotice(complete ? '项目及其应用内文件已永久删除。' : '项目已移除，文件清理尚未完成，请继续核对删除。');
   }
 
   function contentChanged() {
@@ -232,6 +255,7 @@ export default function App() {
         <div className="section-heading"><div><h2>{showArchived ? '已归档项目' : '活跃项目'}</h2><span className="count">{projects.length}</span></div>
           <span className="sort-note"><ArrowDown size={13} />最近更新</span></div>
         <div className="text-actions"><button className="button secondary" aria-pressed={!showArchived} onClick={() => changeFilter(false)}>活跃项目</button><button className="button secondary" aria-pressed={showArchived} onClick={() => changeFilter(true)}>已归档</button><button className="text-button" onClick={retry}>刷新项目列表</button></div>
+        {deleteIntent && <div className="error-box">有待核对的永久删除：{deleteIntent.name}<button className="text-button" onClick={() => setDeleting(deleteIntent)}>继续核对删除</button></div>}
         <p className="save-notice" role="status" aria-label="项目操作状态">{notice}</p>
         {listError && <div className="error-box list-error" role="alert"><CircleAlert size={19} /><span>{listError}</span>
           <button className="text-button" onClick={retry} disabled={loading}><RefreshCw size={14} />重试</button></div>}
@@ -255,11 +279,12 @@ export default function App() {
           {selectedId && <section className="detail-panel" aria-label="项目详情" aria-busy={detail.state === 'loading'}>
             <div className="detail-heading"><span>项目详情</span><a href="#" className="icon-button" aria-label="关闭项目详情"><X size={18} /></a></div>
             {detail.state === 'loading' ? <p className="detail-loading"><LoaderCircle className="spin" size={18} />正在读取项目…</p> :
-              detail.state === 'error' ? <div className="detail-error"><p role="alert">{detail.message}</p><button className="button secondary" onClick={retry}>重新读取</button></div> : <>
+              detail.state === 'error' ? <div className="detail-error"><p role="alert">{detail.message}</p>{detail.deleted && <button className="button secondary" onClick={() => { if (deleteIntent && deleteIntent.id !== selectedId) { setNotice('请先核对上一次删除，再处理其他项目。'); return; } const target = { id: selectedId!, name: '已删除项目', created_at: '', updated_at: '' }; setDeleteIntent(target); setDeleting(target); }}>核对删除清理状态</button>}<button className="button secondary" onClick={retry}>重新读取</button></div> : <>
                 <div className="detail-icon"><FolderOpen size={27} /></div>
                 <h2 className="detail-name">{detail.project.name}</h2>
                 <button className="text-button rename-button" onClick={() => setEditing({ mode: 'rename', project: detail.project })}><Pencil size={14} />重命名</button>
                 <button className="button secondary" disabled={archiving} onClick={() => void archiveProject(detail.project)}>{detail.project.archived ? '恢复项目' : '归档项目'}</button>
+                <button className="button secondary" disabled={archiving} onClick={() => startDelete(detail.project)}>永久删除项目</button>
                 {!!detail.project.archived && <p>该项目已归档，仅从活跃列表移出；资料仍可访问，任务不受影响。</p>}
                 <dl className="project-meta"><div><dt>创建时间</dt><dd><time dateTime={detail.project.created_at}>{dateOf(detail.project.created_at)}</time></dd></div>
                   <div><dt>最近更新</dt><dd><time dateTime={detail.project.updated_at}>{dateOf(detail.project.updated_at)}</time></dd></div><div><dt>保存位置</dt><dd>本机</dd></div></dl>
@@ -274,6 +299,7 @@ export default function App() {
         <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>项目管理已就绪 · 配音功能逐步开放</span></footer>
       </div>
     </main>
+    {deleting && <DeleteProjectDialog key={deleting.id} project={deleting} retry={deleteIntent?.id === deleting.id} onClose={() => setDeleting(null)} onRemoved={removed} onPending={setDeleteIntent} />}
     {editing && <NameDialog editing={editing} onDismiss={() => setEditing(null)} onSaved={saved} />}
   </div>;
 }

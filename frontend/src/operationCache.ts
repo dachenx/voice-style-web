@@ -10,6 +10,7 @@ export function useCreation() {
 }
 export type PendingExport = { body: string; paragraph: string | null };
 type ExportOperation = { pause: number; pending: PendingExport | null; busy: boolean; completed: number; error: string; notice: string };
+const removedProjects = new Set<string>();
 const exports = new Map<string, ExportOperation>();
 const listeners = new Map<string, Set<() => void>>();
 export function exportOperation(id: string): ExportOperation {
@@ -17,6 +18,7 @@ export function exportOperation(id: string): ExportOperation {
   return exports.get(id)!;
 }
 export function updateExport(id: string, patch: Partial<ExportOperation>) {
+  if (removedProjects.has(id)) return;
   exports.set(id, { ...exportOperation(id), ...patch });
   listeners.get(id)?.forEach(fn => fn());
 }
@@ -26,4 +28,8 @@ export function useExportOperation(id: string) {
     listeners.get(id)!.add(fn);
     return () => { listeners.get(id)!.delete(fn); };
   }, () => exportOperation(id));
+}
+
+export function forgetProjectOperations(id: string) {
+  removedProjects.add(id); exports.delete(id); listeners.get(id)?.forEach(fn => fn());
 }

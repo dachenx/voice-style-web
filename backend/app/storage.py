@@ -1,6 +1,7 @@
 """Small SQLite store with checked, transactional migrations."""
 
 import hashlib
+import json
 import sqlite3
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -61,3 +62,14 @@ def migrate(database: Path, migrations: Path | None = None) -> None:
                 "INSERT INTO schema_migrations(version, checksum) VALUES (?, ?)",
                 (version, checksum),
             )
+
+
+def pending_deletion_ids(database: Path, group: str) -> set[str]:
+    with connect(database) as connection:
+        rows = connection.execute("SELECT paths_json FROM project_deletions WHERE completed=0")
+        return {
+            identifier
+            for row in rows
+            for folder, identifier in json.loads(row[0])
+            if folder == group
+        }

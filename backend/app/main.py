@@ -22,6 +22,7 @@ from .audio import AudioError
 from .directory_lock import DirectoryLock
 from .exports import cleanup_exports, export_router
 from .generation import GenerationAdapter, GenerationRegistry, TaskError
+from .project_deletion import DeleteInput, ProjectOperations, delete_project, resume_deletions
 from .references import cleanup_uncommitted, router
 from .storage import connect, migrate
 from .tasks import task_router
@@ -91,8 +92,18 @@ def create_app(
                 directory.mkdir(parents=True, exist_ok=True)
                 directory_lock.acquire()
                 migrate(database)
+                for folder in (
+                    "references",
+                    "exports",
+                    "generation-results",
+                    "generation-tmp",
+                    "audio-tmp",
+                ):
+                    if (directory / folder).is_symlink():
+                        raise OSError("unsafe data directory link")
+                resume_deletions(database, directory)
                 cleanup_uncommitted(directory, database)
-                cleanup_exports(directory)
+                cleanup_exports(directory, database)
                 application.state.storage_ready = True
                 worker.start()
             except (OSError, sqlite3.Error):
@@ -104,6 +115,7 @@ def create_app(
             directory_lock.close()
 
     application = FastAPI(title="Voice Style Web", lifespan=lifespan)
+    application.add_middleware(ProjectOperations, database=database)
     registry = ConverterRegistry(text_converters)
 
     @application.exception_handler(RequestValidationError)
@@ -175,6 +187,13 @@ def create_app(
         with connect(database) as connection:
             connection.execute("BEGIN IMMEDIATE")
             if payload.request_id is not None:
+                if connection.execute(
+                    "SELECT 1 FROM deleted_project_requests WHERE request_id=?",
+                    (str(payload.request_id),),
+                ).fetchone():
+                    raise TextError(
+                        410, "project_deleted", "此创建请求对应的项目已永久删除，请重新发起新建"
+                    )
                 prior = connection.execute(
                     "SELECT * FROM project_create_requests WHERE request_id=?",
                     (str(payload.request_id),),
@@ -249,6 +268,20 @@ def create_app(
                     "DELETE FROM project_archives WHERE project_id=?", (str(project_id),)
                 )
         return get_project(project_id)
+
+    @application.get("/api/projects/{project_id}/deletion-status")
+    def deletion_status(project_id: UUID) -> dict[str, Any]:
+        require_storage()
+        with connect(database) as connection:
+            row = connection.execute(
+                "SELECT completed FROM project_deletions WHERE project_id=?", (str(project_id),)
+            ).fetchone()
+        return {"deleted": row is not None, "cleanup_complete": bool(row and row[0])}
+
+    @application.delete("/api/projects/{project_id}")
+    def remove_project(project_id: UUID, payload: DeleteInput) -> dict[str, str]:
+        require_storage()
+        return delete_project(database, directory, str(project_id), payload)
 
     application.include_router(
         export_router(database, directory, require_storage, generation_registry)

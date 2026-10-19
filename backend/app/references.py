@@ -19,7 +19,7 @@ from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 
 from .audio import FORMATS, MAX_BYTES, SAMPLE_RATE, AudioError, decode, excerpt
-from .storage import connect
+from .storage import connect, pending_deletion_ids
 
 
 class ClipInput(BaseModel):
@@ -71,7 +71,10 @@ def cleanup_uncommitted(directory: Path, database: Path) -> None:
     with connect(database) as connection:
         references = {row[0] for row in connection.execute("SELECT id FROM audio_references")}
         clips = {row[0] for row in connection.execute("SELECT id FROM reference_clips")}
+    pending = pending_deletion_ids(database, "references")
     for reference in root.iterdir():
+        if reference.name in pending:
+            continue
         if reference.name not in references:
             if reference.is_dir():
                 shutil.rmtree(reference)

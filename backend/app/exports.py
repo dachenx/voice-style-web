@@ -17,7 +17,7 @@ from pydantic import Field, StrictBool
 
 from .generation import GenerationRegistry, TaskError
 from .references import require_project, timestamp
-from .storage import connect
+from .storage import connect, pending_deletion_ids
 from .text_models import Revision, StrictModel
 from .versions import audio_metadata, catalogue, require_audio, value_digest
 
@@ -83,12 +83,13 @@ def verified_audio(folder: Path, manifest: dict[str, Any]) -> bytes:
     return raw
 
 
-def cleanup_exports(directory: Path) -> None:
+def cleanup_exports(directory: Path, database: Path) -> None:
     root = directory / "exports"
     if not root.exists() or root.is_symlink():
         return
+    pending_projects = pending_deletion_ids(database, "exports")
     for project in root.iterdir():
-        if project.is_symlink() or not project.is_dir():
+        if project.name in pending_projects or project.is_symlink() or not project.is_dir():
             continue
         for pending in project.glob(".pending-*"):
             if pending.is_dir() and not pending.is_symlink():
