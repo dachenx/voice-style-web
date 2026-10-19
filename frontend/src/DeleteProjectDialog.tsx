@@ -14,7 +14,6 @@ export default function DeleteProjectDialog({ project, retry, onClose, onRemoved
   project: Project; retry: boolean; onPending: (project: Project | null) => void; onClose: () => void; onRemoved: (id: string, complete: boolean) => void;
 }) {
   const dialog = useRef<HTMLDialogElement>(null);
-  const [name, setName] = useState(retry ? project.name : '');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
   const [pending, setPending] = useState(retry);
@@ -52,12 +51,11 @@ export default function DeleteProjectDialog({ project, retry, onClose, onRemoved
     <p>即将删除「{project.name}」</p>
     <p>本项目文案、上传副本、参考片段、生成音频和导出将永久删除，不能恢复。</p>
     <p>Public 原始文件、模型、其他项目及独立备份不受影响。有排队、运行或其他进行中的操作时会阻止删除。</p>
-    <label>输入项目名称以确认<input aria-label="输入项目名称以确认" value={name} disabled={busy || pending} onChange={e => setName(e.target.value)} /></label>
     {error && <p role="alert" className="error-box">{error}</p>}
     {pending && <p>保留本次删除目标供继续核对。刷新整页后，可从待核对入口或原项目链接重试清理；不要新建同名项目代替核对。</p>}
     <div className="dialog-actions">
       <button className="button secondary" disabled={busy} onClick={onClose}>{pending ? '稍后核对' : '取消'}</button>
-      <button className="button primary" disabled={busy || name !== project.name} onClick={() => void remove()}>{busy ? '正在删除…' : pending ? '重试同一项目删除' : '确认永久删除'}</button>
+      <button className="button primary" disabled={busy} onClick={() => void remove()}>{busy ? '正在删除…' : pending ? '重试同一项目删除' : '确认永久删除'}</button>
     </div>
   </dialog>;
 }

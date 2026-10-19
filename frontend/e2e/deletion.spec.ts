@@ -1,7 +1,7 @@
 import { expect, test } from '@playwright/test';
 import { randomUUID } from 'node:crypto';
 
-test('永久删除两次确认，取消和错误名称无写，成功只删除目标', async ({ page }) => {
+test('永久删除两次确认，取消无写且无需输入名称，成功只删除目标', async ({ page }) => {
   const name = `删除-${randomUUID()}`;
   const p = await (await page.request.post('/api/projects', { data: { name } })).json();
   const other = await (await page.request.post('/api/projects', { data: { name: '保留项目' } })).json();
@@ -14,9 +14,8 @@ test('永久删除两次确认，取消和错误名称无写，成功只删除�
   await modal.getByRole('button', { name: '取消', exact: true }).click();
   expect(deletes).toBe(0);
   await page.getByRole('button', { name: '永久删除项目', exact: true }).click();
-  await modal.getByLabel('输入项目名称以确认').fill('错误名称');
-  await expect(modal.getByRole('button', { name: '确认永久删除' })).toBeDisabled();
-  await modal.getByLabel('输入项目名称以确认').fill(name);
+  await expect(modal.getByRole('textbox')).toHaveCount(0);
+  await expect(modal.getByRole('button', { name: '确认永久删除' })).toBeEnabled();
   await modal.getByRole('button', { name: '确认永久删除' }).click();
   await expect(page.getByRole('status', { name: '项目操作状态' })).toContainText('已永久删除');
   await expect(page.locator(`a[href="#project=${p.id}"]`)).toHaveCount(0);
@@ -40,7 +39,6 @@ test('删除响应丢失可关闭、刷新和继续核对，不重复删除或�
   });
   await page.goto(`/#project=${p.id}`);
   await page.getByRole('button', { name: '永久删除项目', exact: true }).click();
-  await page.getByLabel('输入项目名称以确认').fill('同名项目');
   await page.getByRole('button', { name: '确认永久删除' }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('待核对');
   await page.getByRole('button', { name: '稍后核对' }).click();
@@ -71,7 +69,6 @@ test('归档项目同样可删，未保存稿先保护，任务拒绝不得假�
     else await route.continue();
   });
   await page.getByRole('button', { name: '永久删除项目', exact: true }).click();
-  await page.getByLabel('输入项目名称以确认').fill(p.name);
   await page.getByRole('button', { name: '确认永久删除' }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('运行任务');
   expect((await page.request.get(`/api/projects/${p.id}`)).ok()).toBeTruthy();
@@ -116,7 +113,6 @@ test('未决删除不被其他项目覆盖，状态核对忙也保留入口', as
   });
   await page.goto(`/#project=${a.id}`);
   await page.getByRole('button', { name: '永久删除项目', exact: true }).click();
-  await page.getByLabel('输入项目名称以确认').fill(a.name);
   await page.getByRole('button', { name: '确认永久删除' }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('清理未完成');
   await page.getByRole('button', { name: '稍后核对' }).click();
@@ -148,7 +144,6 @@ test('核对确认已删但清理重试忙，仍保留跨刷新恢复入口', as
   await page.route(`**/api/projects/${p.id}/deletion-status`, route => route.fulfill({ json: { deleted: true, cleanup_complete: complete } }));
   await page.goto(`/#project=${p.id}`);
   await page.getByRole('button', { name: '永久删除项目', exact: true }).click();
-  await page.getByLabel('输入项目名称以确认').fill(p.name);
   await page.getByRole('button', { name: '确认永久删除' }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('待核对');
   await page.getByRole('button', { name: '重试同一项目删除' }).click();
@@ -170,7 +165,6 @@ test('首次删除未到服务器后新增草稿，继续核对必须重新保�
   });
   await page.goto(`/#project=${p.id}`);
   await page.getByRole('button', { name: '永久删除项目', exact: true }).click();
-  await page.getByLabel('输入项目名称以确认').fill(p.name);
   await page.getByRole('button', { name: '确认永久删除' }).click();
   await expect(page.getByRole('dialog').getByRole('alert')).toContainText('待核对');
   await page.getByRole('button', { name: '稍后核对' }).click();

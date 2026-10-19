@@ -1,37 +1,19 @@
 {
   "id": "M07",
-  "title": "M07 项目永久删除",
-  "base_commit": "c80dfe7cc676251ba717774b9e14f4108eb9cab6",
+  "title": "M07 删除确认简化",
+  "base_commit": "7b0ebf15c097844539c491ae901fb872ec7a4cdb",
   "allowed_paths": [
     "quality/active-module.json",
-    "backend/app/main.py",
-    "backend/app/project_deletion.py",
-    "backend/app/migrations/008_project_deletion.sql",
-    "backend/tests/test_project_deletion.py",
-    "backend/tests/test_api.py",
-    "backend/tests/test_project_lifecycle.py",
-    "backend/tests/test_versions.py",
-    "backend/tests/test_model_inputs.py",
-    "backend/tests/test_references.py",
-    "backend/tests/test_text_documents.py",
-    "frontend/src/App.tsx",
     "frontend/src/DeleteProjectDialog.tsx",
-    "frontend/src/operationCache.ts",
     "frontend/e2e/deletion.spec.ts",
     "docs/快速使用指南.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-delete.json",
-    "backend/app/storage.py",
-    "backend/app/references.py",
-    "backend/app/worker.py",
-    "backend/app/exports.py"
+    "docs/reviews/M07-delete-confirm.json"
   ],
   "acceptance": [
-    "两次明确确认，仅删除目标项目应用内记录与文件，不动原件/模型/其他项目",
-    "在途HTTP操作和queued/running任务由后端阻止删除，旧创建请求不得复活项目",
-    "中断/清理失败持久恢复，同项目幂等重试，不假成功",
-    "隔离专项、单项独立审核及团队复核，仅本地提交"
+    "点击删除后弹窗再次确认，无需输入项目名；取消无删除",
+    "保留未保存、活动任务、并发名称快照与未知结果恢复保护"
   ],
   "checks": [
     {
@@ -56,5 +38,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-delete.json"
+  "review": "docs/reviews/M07-delete-confirm.json"
 }
