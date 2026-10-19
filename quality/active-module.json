@@ -1,21 +1,21 @@
 {
   "id": "M07",
-  "title": "M07 流程与状态提示",
-  "base_commit": "7d7785ed4b327145db6e0d5b2440a6ae0fe3d40a",
+  "title": "M07 取消初版自动文案转换",
+  "base_commit": "5160a3be2d8917aefe8a45db4ef867d26b1e37bb",
   "allowed_paths": [
     "quality/active-module.json",
-    "frontend/src/App.tsx",
-    "frontend/src/TaskPanel.tsx",
-    "frontend/e2e/projects.spec.ts",
-    "frontend/e2e/tasks.spec.ts",
+    "frontend/src/TextPanel.tsx",
+    "frontend/e2e/text.spec.ts",
+    "项目说明.md",
+    "docs/初版软件交付清单.md",
     "docs/快速使用指南.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-progress.json"
+    "docs/reviews/M07-manual-text.json"
   ],
   "acceptance": [
-    "静态流程与当前状态分开，空态按分类且读取失败不称空列表",
-    "生成下一步依据当前状态，未知请求与错误优先，不把历史成功或模拟称项目完成"
+    "移除自动改写占位入口与前端能力查询，手工编辑保存人工确认保持",
+    "当前文档说明自动转换按用户决定取消初版范围，不改历史或冒称实现"
   ],
   "checks": [
     {
@@ -40,5 +40,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-progress.json"
+  "review": "docs/reviews/M07-manual-text.json"
 }

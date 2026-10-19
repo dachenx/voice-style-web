@@ -30,7 +30,6 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
   const [historyError, setHistoryError] = useState('');
   const [snapshotError, setSnapshotError] = useState('');
   const [snapshot, setSnapshot] = useState<Confirmation | null>(null);
-  const [converterMessage, setConverterMessage] = useState('尚未连接文本转换组件，当前可人工填写草稿。');
   const controller = useRef<AbortController | null>(null);
   const operation = useRef(0);
   const historyOpened = useRef(false);
@@ -59,9 +58,6 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
       setDoc(pending?.doc ?? value); setSaved(pending?.saved ?? JSON.stringify(contentOf(value)));
       if (pending) setNotice('已恢复此项目在本窗口的未保存输入，请保存；如有版本冲突可重新载入。');
     }).catch((cause) => { if (!abort.signal.aborted && version === operation.current) setError(messageOf(cause)); });
-    void request<{ converters: unknown[]; message: string }>('/text-converters', { signal: abort.signal }).then((value) => {
-      if (!abort.signal.aborted) setConverterMessage(value.converters.length ? '已发现转换组件，本版请人工填写并核对草稿。' : value.message);
-    }).catch(() => { /* The editor remains available without capability discovery. */ });
     return () => { abort.abort(); operation.current += 1; historyListOperation.current += 1; snapshotOperation.current += 1; };
   }, [base, projectId]);
 
@@ -128,7 +124,7 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
       <div className="text-language">源语言：普通话（zh-CN） <span>目标：武汉话（wuhan）</span><span>已保存版本：{doc.revision}</span></div>
       <fieldset disabled={busy} className="text-fields">
         <div className="text-pair"><label>语体<input value={doc.register} onChange={(e) => edit((d) => ({ ...d, register: e.target.value }))} /></label><label>术语备注<textarea value={doc.terms} onChange={(e) => edit((d) => ({ ...d, terms: e.target.value }))} /></label></div>
-        <div className="converter-note"><button className="button secondary" disabled>自动改写（暂不可用）</button><p>{converterMessage || '尚未连接文本转换组件，当前可人工填写草稿。'} 人工填写可用；复制原稿不等于方言转换。</p></div>
+        <p className="audio-hint">请手工填写或粘贴需要朗读的草稿，核对后人工确认。复制原稿仅复制文字，不会自动改写为武汉话。</p>
         {doc.paragraphs.map((paragraph, index) => <article className="text-paragraph" key={paragraph.id} data-paragraph-id={paragraph.id} aria-label={`第 ${index + 1} 段`}>
           <div className="text-paragraph-heading"><h3>第 {index + 1} 段</h3><div className="text-actions">
             <button className="text-button" disabled={index === 0} onClick={() => edit((d) => { const paragraphs = [...d.paragraphs]; [paragraphs[index - 1], paragraphs[index]] = [paragraphs[index], paragraphs[index - 1]]; return { ...d, paragraphs }; })}>上移</button>

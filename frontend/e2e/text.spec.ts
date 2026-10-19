@@ -25,14 +25,18 @@ async function confirm(page: Page) {
 }
 
 test('保存刷新、人工确认、编辑失效及历史快照保持不变', async ({ page }) => {
+  const converterRequests: string[] = [];
+  page.on('request', (request) => { if (new URL(request.url()).pathname === '/api/text-converters') converterRequests.push(request.url()); });
   const id = await create(page);
-  await expect(page.getByRole('button', { name: '自动改写（暂不可用）' })).toBeDisabled();
+  await expect(page.getByRole('button', { name: /自动改写/ })).toHaveCount(0);
+  await expect(page.getByText('请手工填写或粘贴需要朗读的草稿', { exact: false })).toBeVisible();
   await fill(page);
   await expect(page.getByRole('button', { name: '确认当前文案', exact: true })).toBeDisabled();
   await save(page);
   await page.reload();
   await expect(page.getByLabel('武汉话草稿', { exact: true })).toHaveValue('今天我们克汉口。');
   await confirm(page);
+  expect(converterRequests).toEqual([]);
   const initial = await (await page.request.get(`/api/projects/${id}/text`)).json() as TextDocument;
   await page.getByLabel('武汉话草稿', { exact: true }).fill('明天我们克汉口。');
   await expect(page.getByRole('checkbox')).not.toBeChecked();
