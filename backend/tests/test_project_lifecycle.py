@@ -88,6 +88,8 @@ def test_upgrade_from_six_preserves_rows(tmp_path: Path) -> None:
         )
         assert connection.execute("SELECT COUNT(*) FROM project_archives").fetchone()[0] == 0
         assert connection.execute("SELECT COUNT(*) FROM project_create_requests").fetchone()[0] == 0
+        count = connection.execute("SELECT COUNT(*) FROM abandoned_project_requests").fetchone()[0]
+        assert count == 0
 
 
 def test_archived_queued_task_finishes_and_restore_keeps_audio_selection(tmp_path: Path) -> None:
@@ -115,3 +117,73 @@ def test_archived_queued_task_finishes_and_restore_keeps_audio_selection(tmp_pat
         assert client.get(base + "/text").json() == before
         assert history(client, project)["paragraphs"][0]["selection"] == selected
         assert client.get(base + f"/tasks/{task['id']}/audio").content == audio.content
+
+
+def test_resolve_abandoned_persists_and_late_create_is_rejected(tmp_path: Path) -> None:
+    body = {"name": "原请求", "request_id": str(uuid4())}
+    url = f"/api/project-creation-requests/{body['request_id']}/resolve"
+    for _ in range(2):
+        with TestClient(create_app(tmp_path, worker_enabled=False)) as client:
+            assert client.post(url, json={"name": " 原请求 "}).json() == {"status": "abandoned"}
+            assert client.post(url, json={"name": "其他"}).status_code == 409
+            late = client.post("/api/projects", json=body)
+            assert late.status_code == 410
+            assert late.json()["error"]["code"] == "project_request_abandoned"
+            assert client.get("/api/projects").json()["projects"] == []
+    with TestClient(create_app(tmp_path, worker_enabled=False)) as client:
+        assert client.post("/api/projects", json={"name": body["name"]}).status_code == 201
+
+
+def test_resolve_created_preserves_current_project_and_deleted_state(tmp_path: Path) -> None:
+    body = {"name": "原请求", "request_id": str(uuid4())}
+    url = f"/api/project-creation-requests/{body['request_id']}/resolve"
+    with TestClient(create_app(tmp_path, worker_enabled=False)) as client:
+        project = client.post("/api/projects", json=body).json()
+        base = f"/api/projects/{project['id']}"
+        client.patch(base, json={"name": "重命名"})
+        client.put(base + "/archive", json={"archived": True})
+        current = client.get(base).json()
+        for _ in range(2):
+            assert client.post(url, json={"name": "原请求"}).json() == {
+                "status": "created", "project": current
+            }
+        assert client.post(url, json={"name": "重命名"}).status_code == 409
+        assert client.get(base).json() == current
+        assert len(client.get("/api/projects?archived=true").json()["projects"]) == 1
+        removed = client.request(
+            "DELETE", base, json={"confirm_name": "重命名", "acknowledged": True}
+        )
+        assert removed.status_code == 200
+        assert client.post(url, json={"name": "原请求"}).json() == {"status": "deleted"}
+        assert client.post("/api/projects", json=body).status_code == 410
+
+
+def test_resolve_and_create_concurrent_have_one_durable_outcome(tmp_path: Path) -> None:
+    from threading import Barrier
+
+    with TestClient(create_app(tmp_path, worker_enabled=False)) as client:
+        for _ in range(12):
+            body = {"name": "竞争", "request_id": str(uuid4())}
+            url = f"/api/project-creation-requests/{body['request_id']}/resolve"
+            barrier = Barrier(2)
+
+            def create(barrier=barrier, body=body):
+                barrier.wait()
+                return client.post("/api/projects", json=body)
+
+            def resolve(barrier=barrier, body=body, url=url):
+                barrier.wait()
+                return client.post(url, json={"name": body["name"]})
+
+            with ThreadPoolExecutor(max_workers=2) as pool:
+                creating = pool.submit(create)
+                resolving = pool.submit(resolve)
+                created, resolved = creating.result(), resolving.result()
+            assert resolved.status_code == 200
+            if resolved.json()["status"] == "created":
+                assert created.status_code == 201
+                assert resolved.json()["project"]["id"] == created.json()["id"]
+            else:
+                assert resolved.json() == {"status": "abandoned"}
+                assert created.status_code == 410
+            assert client.post(url, json={"name": body["name"]}).json() == resolved.json()

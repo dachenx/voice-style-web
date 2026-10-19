@@ -5,6 +5,7 @@ type Creation = { request_id: string; name: string } | null;
 let creation: Creation = null;
 const creationListeners = new Set<() => void>();
 export function setCreation(value: Creation) { creation = value; creationListeners.forEach(fn => fn()); }
+export function getCreation() { return creation; }
 export function useCreation() {
   return useSyncExternalStore(fn => { creationListeners.add(fn); return () => { creationListeners.delete(fn); }; }, () => creation);
 }

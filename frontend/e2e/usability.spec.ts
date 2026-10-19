@@ -212,3 +212,104 @@ test('在途导出重挂后仍显示确定拒绝，归档加载失败不混入�
   await expect(page.getByText('分类读取失败', { exact: true })).toBeVisible();
   await expect(page.locator(`a[href="#project=${id}"]`)).toHaveCount(0);
 });
+
+test('核对创建结果保留原项目，不重复新建或覆盖改名', async ({ page }) => {
+  const name = `核对-${randomUUID()}`;
+  let projectId = '';
+  let posts = 0;
+  await page.route('**/api/projects', async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    posts++;
+    const response = await route.fetch();
+    projectId = (await response.json()).id;
+    await route.abort();
+  });
+  await page.goto('/'); await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await page.getByLabel('项目名称', { exact: true }).fill(name);
+  await page.getByRole('dialog').getByRole('button', { name: '创建项目', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('创建结果请核对');
+  await page.request.patch(`/api/projects/${projectId}`, { data: { name: '已改名' } });
+  await page.getByRole('button', { name: '核对并结束原请求' }).click();
+  await expect(page.getByRole('region', { name: '项目详情' })).toContainText('已改名');
+  expect(new URL(page.url()).hash).toBe(`#project=${projectId}`);
+  expect(posts).toBe(1);
+  expect((await page.request.get(`/api/projects/${projectId}`)).ok()).toBe(true);
+});
+
+test('结束未到达的创建，丢失核对响应仍保留原请求，迟到创建被拒绝', async ({ page }) => {
+  const name = `结束-${randomUUID()}`;
+  let body: { request_id: string; name: string };
+  await page.route('**/api/projects', async route => {
+    if (route.request().method() !== 'POST') return route.continue();
+    body = route.request().postDataJSON(); await route.abort();
+  });
+  let lose = true;
+  await page.route('**/api/project-creation-requests/*/resolve', async route => {
+    if (lose) { lose = false; await route.fetch(); await route.abort(); }
+    else await route.continue();
+  });
+  await page.goto('/'); await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await page.getByLabel('项目名称', { exact: true }).fill(name);
+  await page.getByRole('dialog').getByRole('button', { name: '创建项目', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('创建结果请核对');
+  await page.getByRole('button', { name: '核对并结束原请求' }).click();
+  await expect(page.getByRole('dialog')).toContainText('原请求仍保留');
+  await expect(page.getByLabel('项目名称', { exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '取消', exact: true }).click();
+  await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await page.getByRole('button', { name: '核对并结束原请求' }).click();
+  await expect(page.getByRole('dialog')).toContainText('原请求已结束');
+  await expect(page.getByLabel('项目名称', { exact: true })).toBeEnabled();
+  const late = await page.request.post('/api/projects', { data: body! });
+  expect(late.status()).toBe(410);
+  await expect(late.json()).resolves.toMatchObject({ error: { code: 'project_request_abandoned' } });
+  await page.unroute('**/api/projects');
+  await page.getByLabel('项目名称', { exact: true }).fill('结束后新建');
+  await page.getByRole('dialog').getByRole('button', { name: '创建项目', exact: true }).click();
+  await expect(page.getByRole('region', { name: '项目详情' })).toContainText('结束后新建');
+  const projects = (await (await page.request.get('/api/projects')).json()).projects;
+  expect(projects.filter((p: { name: string }) => p.name === name)).toHaveLength(0);
+});
+
+test('核对无效响应或冲突不清原请求，已删除终态释放名称', async ({ page }) => {
+  const name = `异常核对-${randomUUID()}`;
+  await page.route('**/api/projects', async route => {
+    if (route.request().method() === 'POST') await route.abort(); else await route.continue();
+  });
+  await page.goto('/'); await page.getByRole('button', { name: '新建项目', exact: true }).click();
+  await page.getByLabel('项目名称', { exact: true }).fill(name);
+  await page.getByRole('dialog').getByRole('button', { name: '创建项目', exact: true }).click();
+  await expect(page.getByRole('dialog')).toContainText('创建结果请核对');
+  let stage = 0;
+  await page.route('**/api/project-creation-requests/*/resolve', async route => {
+    if (stage === 0) await route.fulfill({ json: { status: 'created' } });
+    else if (stage === 3) await route.fulfill({ json: { status: 'created', project: {
+      id: '', name: '无效身份', created_at: new Date().toISOString(), updated_at: new Date().toISOString(),
+    } } });
+    else if (stage === 4) await route.fulfill({ json: { status: 'created', project: {
+      id: randomUUID(), name: '无效日期', created_at: 'bad', updated_at: 'bad',
+    } } });
+    else if (stage === 1) await route.fulfill({ status: 409, json: { error: { message: '测试请求冲突' } } });
+    else await route.fulfill({ json: { status: 'deleted' } });
+  });
+  await page.getByRole('button', { name: '核对并结束原请求' }).click();
+  await expect(page.getByRole('alert')).toContainText('响应无效');
+  await expect(page.getByLabel('项目名称', { exact: true })).toHaveValue(name);
+  await expect(page.getByLabel('项目名称', { exact: true })).toBeDisabled();
+  for (const invalidStage of [3, 4]) {
+    stage = invalidStage;
+    await page.getByRole('button', { name: '核对并结束原请求' }).click();
+    await expect(page.getByRole('button', { name: '核对并结束原请求' })).toBeEnabled();
+    await expect(page.getByRole('alert')).toContainText('响应无效');
+    await expect(page.getByLabel('项目名称', { exact: true })).toHaveValue(name);
+    await expect(page.getByLabel('项目名称', { exact: true })).toBeDisabled();
+  }
+  stage = 1;
+  await page.getByRole('button', { name: '核对并结束原请求' }).click();
+  await expect(page.getByRole('alert')).toContainText('测试请求冲突');
+  await expect(page.getByLabel('项目名称', { exact: true })).toBeDisabled();
+  stage = 2;
+  await page.getByRole('button', { name: '核对并结束原请求' }).click();
+  await expect(page.getByRole('dialog')).toContainText('原请求对应的项目已删除');
+  await expect(page.getByLabel('项目名称', { exact: true })).toBeEnabled();
+});

@@ -463,7 +463,7 @@ def test_m01_database_upgrades_without_data_loss(tmp_path: Path) -> None:
             connection.execute("SELECT name FROM projects WHERE id='existing'").fetchone()[0]
             == "项目"
         )
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 8
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 9
 
 
 def test_actual_restart_preserves_audio_and_active_clip(tmp_path: Path) -> None:

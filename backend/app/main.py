@@ -188,6 +188,13 @@ def create_app(
             connection.execute("BEGIN IMMEDIATE")
             if payload.request_id is not None:
                 if connection.execute(
+                    "SELECT 1 FROM abandoned_project_requests WHERE request_id=?",
+                    (str(payload.request_id),),
+                ).fetchone():
+                    raise TextError(
+                        410, "project_request_abandoned", "此创建请求已结束，请重新发起新建"
+                    )
+                if connection.execute(
                     "SELECT 1 FROM deleted_project_requests WHERE request_id=?",
                     (str(payload.request_id),),
                 ).fetchone():
@@ -213,6 +220,45 @@ def create_app(
                     (str(payload.request_id), payload.name, project["id"]),
                 )
         return {**project, "archived": 0}
+
+    @application.post("/api/project-creation-requests/{request_id}/resolve")
+    def resolve_creation(request_id: UUID, payload: ProjectInput) -> dict[str, Any]:
+        require_storage()
+        with connect(database) as connection:
+            # Serialize against creation: either preserve its committed project or
+            # durably prevent every later replay from creating one.
+            connection.execute("BEGIN IMMEDIATE")
+            key = (str(request_id),)
+            if connection.execute(
+                "SELECT 1 FROM deleted_project_requests WHERE request_id=?", key
+            ).fetchone():
+                return {"status": "deleted"}
+            prior = connection.execute(
+                "SELECT * FROM project_create_requests WHERE request_id=?", key
+            ).fetchone()
+            abandoned = connection.execute(
+                "SELECT * FROM abandoned_project_requests WHERE request_id=?", key
+            ).fetchone()
+            known = prior if prior is not None else abandoned
+            if known is not None and known["request_name"] != payload.name:
+                raise TextError(
+                    409, "project_request_conflict", "创建请求内容不同，请核对原请求"
+                )
+            if prior is not None:
+                project = connection.execute(
+                    "SELECT p.*, (a.project_id IS NOT NULL) AS archived FROM projects p "
+                    "LEFT JOIN project_archives a ON a.project_id=p.id WHERE p.id=?",
+                    (prior["project_id"],),
+                ).fetchone()
+                if project is None:
+                    raise TextError(409, "project_request_conflict", "项目状态需重新核对")
+                return {"status": "created", "project": dict(project)}
+            if abandoned is None:
+                connection.execute(
+                    "INSERT INTO abandoned_project_requests VALUES (?, ?)",
+                    (str(request_id), payload.name),
+                )
+        return {"status": "abandoned"}
 
     @application.get("/api/projects/{project_id}")
     def get_project(project_id: UUID) -> dict[str, Any]:

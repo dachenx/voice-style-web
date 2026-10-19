@@ -2,7 +2,7 @@ import { useEffect, useRef, useState, type FormEvent } from 'react';
 import { ArrowDown, ArrowRight, AudioLines, Check, ChevronRight, CircleAlert, Folder,
   FolderOpen, HardDrive, Layers3, LoaderCircle, Pencil, Plus, RefreshCw, X } from 'lucide-react';
 import { ApiError, messageOf, request, validateName, type Project } from './api';
-import { forgetProjectOperations, setCreation, useCreation } from './operationCache';
+import { forgetProjectOperations, getCreation, setCreation, useCreation } from './operationCache';
 import DeleteProjectDialog, { readDeleteIntent } from './DeleteProjectDialog';
 import ReferencePanel from './ReferencePanel';
 import TextPanel from './TextPanel';
@@ -29,6 +29,8 @@ function NameDialog({ editing, onDismiss, onSaved }: {
   const [name, setName] = useState(editing.mode === 'rename' ? editing.project.name : pending?.name ?? '');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [resolution, setResolution] = useState('');
+  const inFlight = useRef(false);
   const validation = validateName(name);
   const creating = editing.mode === 'create';
 
@@ -43,8 +45,10 @@ function NameDialog({ editing, onDismiss, onSaved }: {
 
   async function submit(event: FormEvent) {
     event.preventDefault();
-    if (saving || validation) return;
+    if (inFlight.current || validation) return;
+    inFlight.current = true;
     setSaving(true);
+    setResolution('');
     setError(null);
     const creationBody = creating ? pending ?? { request_id: crypto.randomUUID(), name: name.trim() } : null;
     if (creationBody) setCreation(creationBody);
@@ -55,12 +59,40 @@ function NameDialog({ editing, onDismiss, onSaved }: {
       if (creating) setCreation(null);
       onSaved(project);
     } catch (failure) {
-      if (creating && failure instanceof ApiError && (failure.status === 422 || failure.code === 'project_deleted')) {
+      if (creating && failure instanceof ApiError && (failure.status === 422 || ['project_deleted', 'project_request_abandoned'].includes(failure.code))) {
         setCreation(null); setError(failure.code === 'project_deleted' ? '原创建请求对应的项目已永久删除。可输入名称重新新建，旧项目不会恢复。' : messageOf(failure)); setSaving(false); return;
       }
       setError(`${messageOf(failure)}${creating ? " 创建结果请核对，重试会沿用原请求，不会重复创建。" : ""}`);
       setSaving(false);
-    }
+    } finally { inFlight.current = false; }
+  }
+
+  async function resolveCreation() {
+    if (!pending || inFlight.current) return;
+    const original = pending;
+    inFlight.current = true; setSaving(true); setError(null); setResolution('');
+    try {
+      const value = await request<{ status: string; project?: Project }>(`/project-creation-requests/${original.request_id}/resolve`, {
+        method: 'POST', body: JSON.stringify({ name: original.name }),
+      });
+      if (getCreation() !== original) return;
+      const project = value?.project;
+      const validProject = project && typeof project.id === 'string' &&
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(project.id) &&
+        typeof project.name === 'string' && !validateName(project.name) &&
+        typeof project.created_at === 'string' && Number.isFinite(Date.parse(project.created_at)) &&
+        typeof project.updated_at === 'string' && Number.isFinite(Date.parse(project.updated_at)) &&
+        (project.archived === undefined || [false, true, 0, 1].includes(project.archived));
+      if (value?.status === 'created' && validProject) {
+        setCreation(null); onSaved(project);
+      } else if (value?.status === 'abandoned' || value?.status === 'deleted') {
+        setCreation(null); setName('');
+        setResolution(value.status === 'abandoned' ? '原请求已结束，迟到的重试不会创建项目。现在可以重新填写名称。' : '原请求对应的项目已删除。现在可以重新填写名称。');
+        input.current?.focus();
+      } else throw new Error('核对响应无效，原请求仍保留，请重试核对。');
+    } catch (failure) {
+      if (getCreation() === original) setError(`${messageOf(failure)} 原请求仍保留，请重试核对。`);
+    } finally { inFlight.current = false; setSaving(false); }
   }
 
   return <dialog ref={dialog} aria-labelledby="dialog-title" onCancel={(event) => {
@@ -80,7 +112,9 @@ function NameDialog({ editing, onDismiss, onSaved }: {
       <p id="name-hint" className={`field-hint ${name && validation ? 'invalid' : ''}`}>
         {name && validation ? validation : '1–80 个字，可以使用中文、数字和表情。'}
       </p>
-      {creating && pending && <p className="field-hint">有待核对的创建请求，名称已固定。可重试原请求；关闭窗口后再点新建可继续核对。刷新整个页面前请先核对项目列表。</p>}
+      {creating && pending && <p className="field-hint">有待核对的创建请求，名称已固定。可重试创建，或核对并结束原请求：已创建的项目会保留并打开，尚未创建则结束旧请求。关闭后重新打开可继续核对。</p>}
+      {creating && pending && <button type="button" className="button secondary" disabled={saving} onClick={() => void resolveCreation()}>核对并结束原请求</button>}
+      {resolution && <p role="status">{resolution}</p>}
       {error && <div className="error-box" role="alert"><CircleAlert size={18} />{error}</div>}
       <div className="dialog-actions">
         <button type="button" className="button secondary" disabled={saving} onClick={onDismiss}>取消</button>
