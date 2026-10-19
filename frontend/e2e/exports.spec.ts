@@ -147,3 +147,127 @@ test('迟到历史不能清掉提交结果未知提示', async ({ page }) => {
   await expect(panel(page).getByRole('status')).toContainText('导出已保存');
   expect(await (await page.request.get(`/api/projects/${id}/exports`)).json()).toHaveLength(1);
 });
+
+test('历史核实已保存请求后解除待核对，不额外提交且保留停顿', async ({ page }) => {
+  const id = await ready(page); let posts = 0;
+  await panel(page).getByRole('spinbutton').fill('500');
+  await page.route(`**/api/projects/${id}/exports`, async route => {
+    if (route.request().method() === 'POST') { posts++; await route.fetch(); await route.abort(); }
+    else await route.continue();
+  });
+  await panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true }).click();
+  await expect(panel(page).getByRole('alert')).toContainText('需要核对');
+  await panel(page).getByRole('button', { name: '刷新导出历史' }).click();
+  await expect(panel(page).getByRole('status')).toContainText('已从导出历史核实保存');
+  await expect(panel(page).getByRole('button', { name: '重试同一导出请求' })).toHaveCount(0);
+  await expect(panel(page).getByRole('alert')).toHaveCount(0);
+  await expect(panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true })).toBeEnabled();
+  await expect(panel(page).getByRole('spinbutton')).toHaveValue('500');
+  const history = await (await page.request.get(`/api/projects/${id}/exports`)).json();
+  expect(history).toHaveLength(1);
+  await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveAttribute('href', `/api/projects/${id}/exports/${history[0].id}/audio`);
+  expect(posts).toBe(1);
+});
+
+test('历史失败、缺失、不可用、其他身份及内容冲突都不误解锁', async ({ page }) => {
+  const id = await ready(page); let mode = 'missing'; let posts = 0;
+  const modes = ['failure', 'missing', 'unavailable', 'other-id', 'other-project', 'no-fingerprint', 'conflict'];
+  await page.evaluate(() => {
+    const state = window as unknown as { digestCalls: number }; state.digestCalls = 0;
+    const original = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = (...args: Parameters<SubtleCrypto['digest']>) => { state.digestCalls++; return original(...args); };
+  });
+  await page.route(`**/api/projects/${id}/exports`, async route => {
+    if (route.request().method() === 'POST') { posts++; await route.fetch(); await route.abort(); return; }
+    if (mode === 'failure') { await route.fulfill({ status: 503, json: { error: { message: '历史读取注入失败' } } }); return; }
+    const records = await (await route.fetch()).json();
+    if (mode === 'missing') records.length = 0;
+    if (records.length) {
+      records[0].audio.duration_ms = 1000 + modes.indexOf(mode); // Unique consumed-response marker.
+      if (mode === 'unavailable') records[0].available = false;
+      if (mode === 'other-id') records[0].id = randomUUID();
+      if (mode === 'other-project') records[0].project_id = randomUUID();
+      if (mode === 'no-fingerprint') delete records[0].request_sha256;
+      if (mode === 'conflict') records[0].request_sha256 = '0'.repeat(64);
+    }
+    await route.fulfill({ json: records });
+  });
+  await panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true }).click();
+  await expect(panel(page).getByRole('alert')).toContainText('需要核对');
+  for (const next of modes) {
+    mode = next;
+    const response = page.waitForResponse(r => r.url().endsWith(`/projects/${id}/exports`) && r.request().method() === 'GET');
+    await panel(page).getByRole('button', { name: '刷新导出历史' }).click(); await response;
+    if (mode === 'failure') await expect(panel(page).getByText('导出历史读取失败：历史读取注入失败', { exact: true })).toBeVisible();
+    else if (mode === 'missing') {
+      await expect(panel(page).getByText('导出历史读取失败：历史读取注入失败', { exact: true })).toHaveCount(0);
+      await expect(panel(page).getByText('尚无已保存导出。', { exact: true })).toBeVisible();
+    } else await expect(panel(page).getByText(`${((1000 + modes.indexOf(mode)) / 1000).toFixed(3)} 秒`, { exact: false })).toBeVisible();
+    if (mode === 'conflict') await expect(panel(page).getByRole('alert')).toContainText('内容不一致');
+    expect(await page.evaluate(() => (window as unknown as { digestCalls: number }).digestCalls)).toBe(mode === 'conflict' ? 1 : 0);
+    await expect(panel(page).getByRole('button', { name: '重试同一导出请求' })).toBeEnabled();
+    await expect(panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true })).toBeDisabled();
+  }
+  mode = 'valid';
+  await panel(page).getByRole('button', { name: '刷新导出历史' }).click();
+  await expect(panel(page).getByRole('status')).toContainText('已从导出历史核实保存');
+  expect(posts).toBe(1);
+});
+
+test('在途提交重挂读到成品不释放，完成后重新核对可恢复', async ({ page }) => {
+  const id = await ready(page); let posts = 0;
+  let release!: () => void; const barrier = new Promise<void>(r => { release = r; });
+  let saved!: () => void; const persisted = new Promise<void>(r => { saved = r; });
+  await page.route(`**/api/projects/${id}/exports`, async route => {
+    if (route.request().method() === 'POST') { posts++; await route.fetch(); saved(); await barrier; await route.abort(); }
+    else await route.continue();
+  });
+  await panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true }).click(); await persisted;
+  await page.getByRole('button', { name: '刷新参考与组件' }).click();
+  await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveCount(1);
+  await expect(panel(page).getByRole('button', { name: '重试同一导出请求' })).toBeDisabled();
+  await expect(panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true })).toBeDisabled();
+  release();
+  await expect(panel(page).getByRole('alert')).toContainText('需要核对');
+  await panel(page).getByRole('button', { name: '刷新导出历史' }).click();
+  await expect(panel(page).getByRole('status')).toContainText('已从导出历史核实保存');
+  expect(posts).toBe(1);
+});
+
+test('摘要失败保持原请求，迟到摘要不能覆盖其间的重试结果', async ({ page }) => {
+  const id = await ready(page); let posts = 0;
+  await page.route(`**/api/projects/${id}/exports`, async route => {
+    if (route.request().method() === 'POST') { posts++; if (posts === 1) await route.fetch(); await route.abort(); }
+    else await route.continue();
+  });
+  await panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true }).click();
+  await expect(panel(page).getByRole('alert')).toContainText('需要核对');
+  await page.evaluate(() => {
+    const state = window as unknown as { digestMode: string; digestEntered: boolean; releaseDigest: () => void; digestDone: boolean };
+    state.digestMode = 'fail'; state.digestEntered = false; state.digestDone = false;
+    const original = crypto.subtle.digest.bind(crypto.subtle);
+    crypto.subtle.digest = async (...args: Parameters<SubtleCrypto['digest']>) => {
+      state.digestEntered = true;
+      if (state.digestMode === 'fail') throw new Error('injected digest failure');
+      if (state.digestMode === 'hold') await new Promise<void>(resolve => { state.releaseDigest = resolve; });
+      const result = await original(...args); state.digestDone = true; return result;
+    };
+  });
+  await panel(page).getByRole('button', { name: '刷新导出历史' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { digestEntered: boolean }).digestEntered)).toBe(true);
+  await expect(panel(page).getByRole('button', { name: '重试同一导出请求' })).toBeEnabled();
+  await page.evaluate(() => { const state = window as unknown as { digestMode: string; digestEntered: boolean }; state.digestMode = 'hold'; state.digestEntered = false; });
+  await panel(page).getByRole('button', { name: '刷新导出历史' }).click();
+  await expect.poll(() => page.evaluate(() => (window as unknown as { digestEntered: boolean }).digestEntered)).toBe(true);
+  await panel(page).getByRole('button', { name: '重试同一导出请求' }).click();
+  await expect.poll(() => posts).toBe(2);
+  await expect(panel(page).getByRole('button', { name: '重试同一导出请求' })).toBeEnabled();
+  await page.evaluate(() => (window as unknown as { releaseDigest: () => void }).releaseDigest());
+  await expect.poll(() => page.evaluate(() => (window as unknown as { digestDone: boolean }).digestDone)).toBe(true);
+  await expect(panel(page).getByRole('button', { name: '重试同一导出请求' })).toBeEnabled();
+  await expect(panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true })).toBeDisabled();
+  await page.evaluate(() => { (window as unknown as { digestMode: string }).digestMode = 'normal'; });
+  await panel(page).getByRole('button', { name: '刷新导出历史' }).click();
+  await expect(panel(page).getByRole('status')).toContainText('已从导出历史核实保存');
+  expect(posts).toBe(2);
+});

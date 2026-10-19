@@ -3,8 +3,18 @@ import { ApiError, messageOf, request } from './api';
 import { exportOperation, updateExport, useExportOperation } from './operationCache';
 import type { VersionCatalogue } from './VersionPanel';
 
-type ExportRecord = { id: string; available: boolean; created_at?: string; is_simulated?: boolean;
+type ExportRecord = { id: string; project_id?: string; request_sha256?: string; available: boolean; created_at?: string; is_simulated?: boolean;
   pause_ms?: number; audio?: { duration_ms: number }; segments?: { version: { comparison: string } }[] };
+// ExportPanel sends all ExportInput fields explicitly, with integer pauses/revisions and
+// lowercase UUIDs. Match the backend canonical JSON (sorted keys, ASCII escapes).
+async function requestFingerprint(body: string): Promise<string> {
+  const value = JSON.parse(body);
+  const sorted = { ...value, selections: Object.fromEntries(Object.entries(value.selections).sort(([a], [b]) => a < b ? -1 : a > b ? 1 : 0)) };
+  const canonical = JSON.stringify(Object.fromEntries(Object.keys(sorted).sort().map(key => [key, sorted[key]])))
+    .replace(/[\u007f-\uffff]/g, char => `\\u${char.charCodeAt(0).toString(16).padStart(4, '0')}`);
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(canonical));
+  return Array.from(new Uint8Array(digest), byte => byte.toString(16).padStart(2, '0')).join('');
+}
 export default function ExportPanel({ projectId, catalog, disabled }: {
   projectId: string; catalog: VersionCatalogue; disabled: boolean;
 }) {
@@ -24,10 +34,29 @@ export default function ExportPanel({ projectId, catalog, disabled }: {
     const abort = new AbortController();
     const generation = ++historyGeneration.current;
     request<ExportRecord[]>(base, { signal: abort.signal }).then(data => {
-      if (!abort.signal.aborted && generation === historyGeneration.current) { setRecords(data); setError(''); }
+      if (abort.signal.aborted || generation !== historyGeneration.current) return;
+      setRecords(data); setError('');
+      const current = exportOperation(projectId);
+      if (current.busy || !current.pending) return;
+      const pendingBody = current.pending.body;
+      // The stored body was created by this component; hash failures never release it.
+      void (async () => {
+        try {
+          const requestId = JSON.parse(pendingBody).request_id;
+          const match = data.find(record => record.id === requestId && record.project_id === projectId && record.available);
+          if (!match?.request_sha256) return;
+          const fingerprint = await requestFingerprint(pendingBody);
+          const latest = exportOperation(projectId);
+          if (abort.signal.aborted || generation !== historyGeneration.current || latest.busy || latest.pending?.body !== pendingBody) return;
+          if (fingerprint !== match.request_sha256) {
+            updateExport(projectId, { error: '历史中同一请求的内容不一致，仍需核对；原请求已保留。' }); return;
+          }
+          updateExport(projectId, { pending: null, error: '', notice: '已从导出历史核实保存，可下载音频与来源记录。' });
+        } catch { /* Keep the original request for an explicit retry. */ }
+      })();
     }).catch(cause => { if (!abort.signal.aborted && generation === historyGeneration.current) setError(`导出历史读取失败：${messageOf(cause)}`); });
     return () => abort.abort();
-  }, [base, refresh, completed]);
+  }, [base, projectId, refresh, completed]);
   useEffect(() => {
     active.current = true;
     return () => { active.current = false; };

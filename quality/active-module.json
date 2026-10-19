@@ -1,19 +1,20 @@
 {
   "id": "M07",
-  "title": "M07 删除确认简化",
-  "base_commit": "7b0ebf15c097844539c491ae901fb872ec7a4cdb",
+  "title": "M07 导出历史核对恢复",
+  "base_commit": "077964bf21782f1b1dbb927fae02fb19906cc0c3",
   "allowed_paths": [
     "quality/active-module.json",
-    "frontend/src/DeleteProjectDialog.tsx",
-    "frontend/e2e/deletion.spec.ts",
+    "frontend/src/ExportPanel.tsx",
+    "frontend/e2e/exports.spec.ts",
+    "frontend/e2e/usability.spec.ts",
     "docs/快速使用指南.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-delete-confirm.json"
+    "docs/reviews/M07-export-reconcile.json"
   ],
   "acceptance": [
-    "点击删除后弹窗再次确认，无需输入项目名；取消无删除",
-    "保留未保存、活动任务、并发名称快照与未知结果恢复保护"
+    "历史中同项目同请求且内容指纹一致的可用成品解除待核对，无额外POST",
+    "忙碌、缺失、损坏、指纹冲突及过期响应不解除，保留原请求和停顿"
   ],
   "checks": [
     {
@@ -38,5 +39,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-delete-confirm.json"
+  "review": "docs/reviews/M07-export-reconcile.json"
 }

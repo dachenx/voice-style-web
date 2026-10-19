@@ -131,7 +131,7 @@ test('初始文案失败明确停止加载并允许重试', async ({ page }) => 
   await expect(page.getByRole('button', { name: '添加段落' })).toBeVisible();
 });
 
-test('导出未知结果禁新请求，刷新及切项目保留设置和原请求', async ({ page }) => {
+test('历史未匹配时导出未知结果禁新请求，刷新及切项目保留设置和原请求', async ({ page }) => {
   const id = await ready(page); const bodies: string[] = []; let lost = true;
   await panel(page).getByRole('spinbutton').fill('500');
   await page.getByRole('button', { name: '刷新参考与组件' }).click();
@@ -140,6 +140,8 @@ test('导出未知结果禁新请求，刷新及切项目保留设置和原请�
     if (route.request().method() === 'POST') {
       bodies.push(route.request().postData()!);
       if (lost) { lost = false; await route.fetch(); await route.abort(); return; }
+    } else if (route.request().method() === 'GET') {
+      await route.fulfill({ json: [] }); return; // Unmatched history must preserve explicit retry.
     }
     await route.continue();
   });
