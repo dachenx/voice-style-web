@@ -67,9 +67,17 @@ def migrate(database: Path, migrations: Path | None = None) -> None:
 def pending_deletion_ids(database: Path, group: str) -> set[str]:
     with connect(database) as connection:
         rows = connection.execute("SELECT paths_json FROM project_deletions WHERE completed=0")
-        return {
+        values = {
             identifier
             for row in rows
             for folder, identifier in json.loads(row[0])
             if folder == group
         }
+        if group in {"generation-results", "generation-tmp"}:
+            values.update(
+                row[0]
+                for row in connection.execute(
+                    "SELECT task_id FROM task_deletions WHERE completed=0"
+                )
+            )
+        return values

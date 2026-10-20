@@ -77,6 +77,10 @@ def task_from_row(row: sqlite3.Row, *, detailed: bool = True) -> dict[str, Any]:
 
 
 def get_task(connection: sqlite3.Connection, project_id: str, task_id: str) -> dict[str, Any]:
+    if connection.execute(
+        "SELECT 1 FROM task_deletions WHERE project_id=? AND task_id=?", (project_id, task_id)
+    ).fetchone():
+        raise TaskError(410, "task_deleted", "该任务记录及音频已删除或正在清理，不能恢复或重试。")
     row = connection.execute(
         "SELECT * FROM generation_tasks WHERE id = ? AND project_id = ?", (task_id, project_id)
     ).fetchone()
@@ -287,7 +291,7 @@ def retry_task(
             "SELECT * FROM generation_tasks WHERE retry_of = ?", (task_id,)
         ).fetchone()
         task = (
-            task_from_row(child)
+            get_task(connection, project_id, child["id"])
             if child is not None
             else insert_task(connection, project_id, parent["snapshot"], task_id)
         )
@@ -350,11 +354,20 @@ def task_router(
             require_project(connection, str(project_id))
             rows = connection.execute(
                 "SELECT * FROM generation_tasks WHERE project_id = ? "
+                "AND id NOT IN (SELECT task_id FROM task_deletions) "
                 "ORDER BY created_at DESC,id ASC",
                 (str(project_id),),
             )
             tasks = [task_from_row(row, detailed=False) for row in rows]
-        return {"tasks": tasks, "worker": read_health()}
+            deletions = [
+                dict(row)
+                for row in connection.execute(
+                    "SELECT task_id,completed,created_at FROM task_deletions d "
+                    "JOIN generation_tasks t ON t.id=d.task_id WHERE d.project_id=?",
+                    (str(project_id),),
+                )
+            ]
+        return {"tasks": tasks, "deletions": deletions, "worker": read_health()}
 
     @routes.post("/api/projects/{project_id}/tasks")
     def submit(project_id: UUID, payload: TaskInput, response: Response) -> dict[str, Any]:

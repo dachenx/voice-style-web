@@ -25,6 +25,7 @@ from .generation import GenerationAdapter, GenerationRegistry, TaskError
 from .project_deletion import DeleteInput, ProjectOperations, delete_project, resume_deletions
 from .references import cleanup_uncommitted, router
 from .storage import connect, migrate
+from .task_deletion import deletion_router
 from .tasks import task_router
 from .text_converters import ConverterRegistry, TextConverter
 from .text_documents import TextError, text_router
@@ -336,6 +337,7 @@ def create_app(
     application.include_router(router(directory, database, require_storage))
     application.include_router(text_router(database, require_storage, registry))
     application.include_router(import_router())
+    application.include_router(deletion_router(database, directory, require_storage))
     application.include_router(transcript_router(database, directory, require_storage))
     application.include_router(
         version_router(database, directory, require_storage, generation_registry)

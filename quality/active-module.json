@@ -1,23 +1,32 @@
 {
   "id": "M07",
-  "title": "M07 文案文件导入",
-  "base_commit": "8e0de6fcf06e684751951430ea67dc0b658fa69f",
+  "title": "M07 任务记录与生成音频删除",
+  "base_commit": "923f2d4e03429053388f4e6bf4b7f76f1822397d",
   "allowed_paths": [
     "quality/active-module.json",
     "backend/app/main.py",
-    "backend/app/text_import.py",
-    "backend/tests/test_text_import.py",
-    "frontend/src/TextPanel.tsx",
-    "frontend/src/TextImport.tsx",
-    "frontend/e2e/text-import.spec.ts",
-    "docs/快速使用指南.md",
+    "backend/app/task_deletion.py",
+    "backend/app/tasks.py",
+    "backend/app/versions.py",
+    "backend/app/project_deletion.py",
+    "backend/app/storage.py",
+    "backend/app/migrations/010_task_deletions.sql",
+    "backend/tests/test_task_deletion.py",
+    "backend/tests/test_api.py",
+    "backend/tests/test_references.py",
+    "backend/tests/test_text_documents.py",
+    "backend/tests/test_versions.py",
+    "backend/tests/test_model_inputs.py",
+    "frontend/src/TaskPanel.tsx",
+    "frontend/e2e/task-deletion.spec.ts",
     "docs/项目方案与决策记录.md",
+    "docs/快速使用指南.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-text-import.json"
+    "docs/reviews/M07-task-delete.json"
   ],
   "acceptance": [
-    "TXT和Word docx本机提取，预览明确替换当前段；失败取消迟到不覆盖",
-    "保留其他段身份原稿与历史，不自动保存生成；限制和格式边界清晰"
+    "终态任务二次确认删除正文及生成文件；选用和导出引用阻止删除",
+    "持久清理、旧请求不复活、并发互斥与恢复；不影响其他资产"
   ],
   "checks": [
     {
@@ -42,5 +51,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-text-import.json"
+  "review": "docs/reviews/M07-task-delete.json"
 }

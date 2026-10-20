@@ -9,6 +9,14 @@ import type { Adapter, AdapterHealth, Task, TaskDetail, TaskInput, WorkerHealth 
 
 type Library = { references: ReferenceAudio[]; active_clip_id: string | null };
 type Pending = { kind: 'create'; input: TaskInput } | { kind: 'retry'; taskId: string; input: { request_id: string } };
+type Deletion = { task_id: string; completed: number; created_at: string };
+const deletionKey = (projectId: string) => `voice-task-deletion:${projectId}`;
+function restoreDeletion(projectId: string): Deletion | null {
+  try {
+    const value = JSON.parse(sessionStorage.getItem(deletionKey(projectId)) ?? 'null');
+    return value && typeof value.task_id === 'string' && typeof value.created_at === 'string' ? value : null;
+  } catch { return null; }
+}
 const labels: Record<Task['state'], string> = { queued: '排队中', running: '运行中', succeeded: '已完成', failed: '失败', canceled: '已取消' };
 const phases: Record<string, string> = { queued: '等待工作进程', validating: '检查固定输入', generating: '制作合成测试音', finalizing: '验证并保存文件', succeeded: '结果已保存', failed: '处理失败', canceled: '排队已取消' };
 const pendingKey = (projectId: string) => `voice-task-pending:${projectId}`;
@@ -45,6 +53,10 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
 }) {
   const base = `/projects/${projectId}/tasks`;
   const [tasks, setTasks] = useState<Task[]>([]);
+  const [deletions, setDeletions] = useState<Deletion[]>([]);
+  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const [unknownDeletion, setUnknownDeletion] = useState<Deletion | null>(() => restoreDeletion(projectId));
+  const removedIds = useRef(new Set<string>());
   const [worker, setWorker] = useState<WorkerHealth | null>(null);
   const [listError, setListError] = useState('');
   const [loaded, setLoaded] = useState(false);
@@ -144,13 +156,22 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     if (!abort || abort.signal.aborted) return;
     const version = ++listOperation.current;
     try {
-      const value = await request<{ tasks: Task[]; worker: WorkerHealth }>(base, { signal: abort.signal });
+      const value = await request<{ tasks: Task[]; deletions?: Deletion[]; worker: WorkerHealth }>(base, { signal: abort.signal });
       if (abort.signal.aborted || version !== listOperation.current) return;
-      setTasks((old) => merge(old, value.tasks)); setWorker(value.worker); setListError(''); setLoaded(true);
+      const removed = value.deletions ?? [];
+      removed.forEach(item => removedIds.current.add(item.task_id));
+      setDeletions(removed.filter(item => !item.completed));
+      setDetail(old => old && removedIds.current.has(old.id) ? null : old);
+      const saved = restoreDeletion(projectId);
+      if (saved && removed.some(item => item.task_id === saved.task_id)) {
+        sessionStorage.removeItem(deletionKey(projectId)); setUnknownDeletion(null);
+      }
+      setTasks((old) => merge(old, value.tasks).filter(item => !removedIds.current.has(item.id)));
+      setWorker(value.worker); setListError(''); setLoaded(true);
     } catch (cause) {
       if (!abort.signal.aborted && version === listOperation.current) setListError(`任务刷新失败：${messageOf(cause)} 已显示的任务保留，请刷新核对。`);
     }
-  }, [base]);
+  }, [base, projectId]);
   useEffect(() => {
     let disposed = false;
     let timer: ReturnType<typeof setTimeout>;
@@ -182,13 +203,13 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       });
       if (abort.signal.aborted) return;
       clearPending(); listOperation.current += 1;
-      setTasks((old) => merge(old, [task]));
+      setTasks((old) => merge(old, [task]).filter(item => !removedIds.current.has(item.id)));
       setNotice(value.kind === 'retry' ? '重试任务已保存，继续使用原任务的固定输入。' : task.is_simulated ? '模拟任务已保存到本机队列。' : '真实语音任务已保存到本机队列。');
       onChanged();
       setPollTick((tick) => tick + 1);
     } catch (cause) {
       if (abort.signal.aborted) return;
-      if (cause instanceof ApiError && [400, 404, 409, 422].includes(cause.status)) {
+      if (cause instanceof ApiError && [400, 404, 409, 410, 422].includes(cause.status)) {
         clearPending(); setActionError(`${messageOf(cause)} 请刷新参考信息，并核对文案版本后重新提交。`);
       } else setActionError(`${messageOf(cause)} 提交结果尚未确认，请使用“核对并重试上次提交”，同一请求不会重复入队。`);
     } finally {
@@ -229,7 +250,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     try {
       const value = await request<TaskDetail>(`${base}/${task.id}/cancel`, { method: 'POST', signal: abort.signal });
       if (abort.signal.aborted) return;
-      listOperation.current += 1; setTasks((old) => merge(old, [value])); setNotice('排队任务已取消。');
+      listOperation.current += 1; setTasks((old) => merge(old, [value]).filter(item => !removedIds.current.has(item.id))); setNotice('排队任务已取消。');
     } catch (cause) {
       if (!abort.signal.aborted) setActionError(`${messageOf(cause)} 请刷新核对任务状态；已运行的任务不能取消。`);
     } finally {
@@ -244,9 +265,50 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     setDetailError('');
     try {
       const value = await request<TaskDetail>(`${base}/${task.id}`, { signal: abort.signal });
-      if (!abort.signal.aborted && version === detailOperation.current) setDetail(value);
+      if (!abort.signal.aborted && version === detailOperation.current && !removedIds.current.has(task.id)) setDetail(value);
     } catch (cause) {
       if (!abort.signal.aborted && version === detailOperation.current) setDetailError(messageOf(cause));
+    }
+  }
+  async function removeTask(item: Deletion) {
+    const abort = lifetime.current;
+    if (!abort || busyRef.current || preparingRef.current) return;
+    if (unknownDeletion && unknownDeletion.task_id !== item.task_id) {
+      setActionError('请先核对上一条任务的删除结果，再清理其他任务。');
+      return;
+    }
+    busyRef.current = true; setBusy(true); setActionError(''); setNotice('');
+    listOperation.current += 1; detailOperation.current += 1; setDeleteTarget(null);
+    try {
+      sessionStorage.setItem(deletionKey(projectId), JSON.stringify(item));
+      setUnknownDeletion(item);
+      const result = await request<{ state: string; task_id: string }>(`${base}/${encodeURIComponent(item.task_id)}`, {
+        method: 'DELETE', body: JSON.stringify({ acknowledged: true }), signal: abort.signal,
+      });
+      if (abort.signal.aborted) return;
+      if (result.state !== 'deleted' || result.task_id !== item.task_id) throw new Error('删除回执无法核对。');
+      removedIds.current.add(item.task_id);
+      setTasks(old => old.filter(task => task.id !== item.task_id));
+      setDetail(old => old?.id === item.task_id ? null : old);
+      sessionStorage.removeItem(deletionKey(projectId)); setUnknownDeletion(null);
+      setDeletions(old => old.filter(task => task.task_id !== item.task_id));
+      setNotice('该任务记录和生成音频已永久删除。'); onChanged();
+    } catch (cause) {
+      if (abort.signal.aborted) return;
+      if (cause instanceof ApiError && cause.code === 'task_cleanup_pending') {
+        removedIds.current.add(item.task_id);
+        setTasks(old => old.filter(task => task.id !== item.task_id));
+        setDetail(old => old?.id === item.task_id ? null : old);
+        setDeletions(old => [...old.filter(task => task.task_id !== item.task_id), item]);
+        sessionStorage.removeItem(deletionKey(projectId)); setUnknownDeletion(null); onChanged();
+        setActionError(messageOf(cause));
+      } else if (cause instanceof ApiError && [400, 404, 409, 410, 422].includes(cause.status)) {
+        sessionStorage.removeItem(deletionKey(projectId)); setUnknownDeletion(null);
+        setActionError(messageOf(cause));
+      } else setActionError(`${messageOf(cause)} 删除结果未知，请核对并重试同一任务。`);
+    } finally {
+      busyRef.current = false;
+      if (!abort.signal.aborted) { listOperation.current += 1; setBusy(false); setPollTick(tick => tick + 1); }
     }
   }
   const clipRange = (clip: Pick<Clip, 'start_ms' | 'end_ms'>) => `${(clip.start_ms / 1000).toFixed(3)}–${(clip.end_ms / 1000).toFixed(3)} 秒`;
@@ -307,6 +369,19 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       blocked={preparing ? '正在准备本次生成。' : blocked || (pending ? '请先核对上次提交结果。' : busy ? '请等待任务操作完成。' : '')}
       onGenerate={(id) => submit('preview', id)} onChanged={onChanged} />
     <div className="subsection-title"><h3>任务记录</h3><button className="text-button" onClick={() => setPollTick((tick) => tick + 1)}>刷新任务</button></div>
+    <p className="audio-hint">删除会同时清除该任务的整篇、分段音频及候选版本，不能恢复。已选用或被导出引用时不能删除；排队请先取消，运行请等待完成。</p>
+    {unknownDeletion && <div role="status" aria-label="任务删除待核对"><p>任务 {unknownDeletion.task_id} 的删除结果待核对。</p>
+      <button disabled={busy || preparing} onClick={() => void removeTask(unknownDeletion)}>核对并重试删除</button></div>}
+    {deletions.map(item => <div key={item.task_id} role="status" aria-label="任务文件待清理">
+      <p>{new Date(item.created_at).toLocaleString('zh-CN')} · 任务 {item.task_id}：记录已移除，生成文件待清理。</p>
+      <button disabled={busy || preparing || (!!unknownDeletion && unknownDeletion.task_id !== item.task_id)} onClick={() => void removeTask(item)}>重试清理文件</button></div>)}
+    {deleteTarget && <section role="dialog" aria-label="确认删除任务">
+      <h4>永久删除这条任务及音频？</h4>
+      <p>{new Date(deleteTarget.created_at).toLocaleString('zh-CN')} · {deleteTarget.mode === 'full' ? '全文' : '短段'} · {labels[deleteTarget.state]} · {deleteTarget.id}</p>
+      <p>删除任务记录、已有的整篇和分段生成文件（如有）及对应候选版本。不会删除项目文案、参考声音、模型或其他任务。不可恢复。</p>
+      <button disabled={busy || preparing} onClick={() => setDeleteTarget(null)}>取消删除</button>
+      <button disabled={busy || preparing} onClick={() => void removeTask({ task_id: deleteTarget.id, created_at: deleteTarget.created_at, completed: 0 })}>确认永久删除任务</button>
+    </section>}
     <p className="audio-hint">单任务工作进程 · {worker?.state === 'running' ? '正在处理任务' : worker?.state === 'idle' ? '已就绪' : '状态待核对'}。关闭页面不停止已保存的队列。</p>
     {worker?.error && <p role="alert" className="error-box">工作进程不可用：{worker.error.message} 队列记录仍保留，请重启本地服务后核对。</p>}
     {listError && <p role="alert" aria-label="任务读取错误" className="error-box">{listError}</p>}
@@ -320,6 +395,8 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       {task.retry_of && <p className="audio-hint">由失败任务重试，使用原输入快照。</p>}
       {task.error && <p className="error-box">{task.error.message}（{task.error.code}）</p>}
       <div className="task-actions"><button className="text-button" onClick={() => void showDetail(task)}>查看任务快照</button>
+        <button className="text-button" disabled={preparing || busy || !!unknownDeletion || ['queued', 'running'].includes(task.state)}
+          onClick={() => setDeleteTarget(task)}>删除任务及音频</button>
         {task.state === 'queued' && <button className="text-button" disabled={preparing || busy} onClick={() => void cancel(task)}>取消排队</button>}
         {task.state === 'failed' && <button className="button secondary" disabled={preparing || busy || !!pending} onClick={() => void send({ kind: 'retry', taskId: task.id, input: { request_id: crypto.randomUUID() } })}>按原输入重试</button>}</div>
       {task.state === 'running' && <p className="audio-hint">正在运行的任务暂不支持取消。</p>}

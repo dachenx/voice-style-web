@@ -51,7 +51,10 @@ class ProjectOperations:
         except ValueError:
             await self.app(scope, receive, send)
             return
-        removing = scope["method"] == "DELETE" and len(parts) == 3
+        project_delete = scope["method"] == "DELETE" and len(parts) == 3
+        removing = project_delete or (
+            scope["method"] == "DELETE" and len(parts) == 5 and parts[3] == "tasks"
+        )
         if project in self.removing or (removing and self.active.get(project, 0)):
             response = JSONResponse(
                 status_code=409,
@@ -83,7 +86,7 @@ class ProjectOperations:
                 )
                 await response(scope, receive, send)
                 return
-            if not removing and is_deleted and parts[3:] != ["deletion-status"]:
+            if not project_delete and is_deleted and parts[3:] != ["deletion-status"]:
                 response = JSONResponse(
                     status_code=410,
                     content={
@@ -142,6 +145,9 @@ def resume_deletions(database: Path, directory: Path) -> None:
         return
     try:
         _resume_deletions(database, directory)
+        from .task_deletion import resume_tasks_locked
+
+        resume_tasks_locked(database, directory)
     finally:
         lock.close()
 
@@ -227,6 +233,7 @@ def _delete_project(
                 "project_archives",
                 "paragraph_audio_selections",
                 "generation_requests",
+                "task_deletions",
                 "project_reference_selection",
                 "text_confirmations",
                 "text_documents",

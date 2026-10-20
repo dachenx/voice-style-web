@@ -99,6 +99,7 @@ def dependencies(snapshot: dict[str, Any], paragraph_id: str) -> dict[str, Any]:
 def candidates(connection: sqlite3.Connection, project_id: str) -> tuple[list[dict[str, Any]], int]:
     rows = connection.execute(
         "SELECT * FROM generation_tasks WHERE project_id=? AND state='succeeded' "
+        "AND id NOT IN (SELECT task_id FROM task_deletions) "
         "ORDER BY created_at,id",
         (project_id,),
     )
