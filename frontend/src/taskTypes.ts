@@ -3,7 +3,7 @@ import type { ReferenceTranscript } from './ReferenceTranscript';
 
 export type TaskInput = {
   request_id: string; expected_revision: number; expected_confirmation_id: string;
-  expected_clip_id: string; adapter_id: string; mode: 'preview' | 'full';
+  expected_clip_id: string | null; adapter_id: string; mode: 'preview' | 'full';
   paragraph_id: string | null; parameters: Record<string, never>;
   expected_transcript_revision?: number;
   expected_adapter_version?: string;
@@ -11,6 +11,7 @@ export type TaskInput = {
 };
 export type Adapter = {
   id: string; version: string; label: string; is_simulated: boolean;
+  reference_source?: 'persona'; max_text_characters?: number;
   requires_transcript?: boolean; model_id?: string; model_revision?: string;
   model_fingerprint?: string; config_fingerprint?: string;
   reference_max_duration_ms?: number; reference_min_sample_rate?: number;

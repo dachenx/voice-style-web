@@ -1,23 +1,36 @@
 {
   "id": "M07",
-  "title": "M07 简洁文案与拼接引导",
-  "base_commit": "3f97775cde375036dd4f33d34ef744fca3316eb1",
+  "title": "M07 人物模型初版接入",
+  "base_commit": "eb6a7496198e782c29751b18ff74d492b13e9574",
   "allowed_paths": [
     "quality/active-module.json",
-    "frontend/src/TextPanel.tsx",
+    "backend/app/generation.py",
+    "backend/app/local_model.py",
+    "backend/app/model_runner.py",
+    "backend/app/persona_config.py",
+    "backend/app/local_qwen.py",
+    "backend/app/tasks.py",
+    "backend/app/worker.py",
+    "backend/app/versions.py",
+    "backend/tests/",
+    "scripts/qwen_bridge.py",
+    "scripts/configure_persona.py",
+    "scripts/e2e_server.py",
+    "frontend/src/App.tsx",
     "frontend/src/TaskPanel.tsx",
-    "frontend/src/VersionPanel.tsx",
-    "frontend/src/ExportPanel.tsx",
-    "frontend/src/uiPreferences.ts",
+    "frontend/src/taskTypes.ts",
     "frontend/e2e/",
     "docs/快速使用指南.md",
+    "docs/模型实验与接入交接.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-simple-flow.json"
+    "docs/reviews/M07-persona.json",
+    "项目说明.md"
   ],
   "acceptance": [
-    "单框编辑，一键顺序保存确认入队，失败保留输入与原任务恢复",
-    "旧多段身份、原稿、备注和历史保留，拼接选用排序停顿试听下载有明确引导"
+    "固定人物模型无项目参考可生成标准分段音频，失败不降级",
+    "模型/参考/参数快照固定，旧任务与导出兼容，人物资源不随项目删除",
+    "有限真实队列短样与隔离故障兼容测试，团队审查"
   ],
   "checks": [
     {
@@ -42,5 +55,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-simple-flow.json"
+  "review": "docs/reviews/M07-persona.json"
 }

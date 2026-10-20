@@ -14,6 +14,7 @@ from pydantic import Field, StrictBool
 from starlette.exceptions import HTTPException
 
 from .generation import GenerationRegistry, TaskError
+from .local_qwen import LocalQwenAdapter
 from .references import require_project, timestamp
 from .storage import connect
 from .tasks import canonical, file_digest, task_from_row, validate_clip
@@ -79,10 +80,9 @@ def dependencies(snapshot: dict[str, Any], paragraph_id: str) -> dict[str, Any]:
     simulated = snapshot.get("is_simulated", True)
     transcript = reference.get("transcript", {})
     known = (
-        adapter["id"] in {"simulated-tone", "cosyvoice3-local"}
-        and adapter["version"] == "1"
-        and snapshot.get("dependency_known", True)
-    )
+        (adapter["id"] in {"simulated-tone", "cosyvoice3-local"} and adapter["version"] == "1")
+        or (adapter["id"] == "wan-qwen3-v0.11" and adapter["version"] == "0.11")
+    ) and snapshot.get("dependency_known", True)
     return {
         "schema": 1,
         "known": known,
@@ -173,29 +173,37 @@ def current_inputs(
     health = registry.health(adapter_id)
     if not health["execution_available"]:
         readiness.append("当前生成组件不可调用；历史音频仍保留")
-    row = connection.execute(
-        "SELECT c.* FROM project_reference_selection s "
-        "JOIN reference_clips c ON c.id=s.clip_id WHERE s.project_id=?",
-        (project_id,),
-    ).fetchone()
-    reference: dict[str, Any] = {"clip": {"id": None}, "clip_sha256": None}
-    if row is None:
-        readiness.append("未选择当前参考片段")
-    else:
-        reference["clip"] = dict(row)
-        path = directory / "references" / row["reference_id"] / "clips" / f"{row['id']}.wav"
+    instance = registry.require(adapter_id)
+    if isinstance(instance, LocalQwenAdapter):
+        reference: dict[str, Any] = {"clip": {"id": None}, "clip_sha256": None}
         try:
-            reference["clip_sha256"] = validate_clip(path, row["start_ms"], row["end_ms"])
-            if not adapter["is_simulated"]:
-                reference["transcript"] = transcript_value(
-                    connection,
-                    row["id"],
-                    reference["clip_sha256"],
-                )
-                if not reference["transcript"]["text"].strip():
-                    readiness.append("当前参考片段缺少准确原话")
-        except (OSError, TaskError):
-            readiness.append("当前参考或绑定原话不可核定，请核对素材")
+            reference = instance.reference()
+        except TaskError:
+            readiness.append("人物固定参考不可用，请检查人物版本")
+    else:
+        row = connection.execute(
+            "SELECT c.* FROM project_reference_selection s "
+            "JOIN reference_clips c ON c.id=s.clip_id WHERE s.project_id=?",
+            (project_id,),
+        ).fetchone()
+        reference = {"clip": {"id": None}, "clip_sha256": None}
+        if row is None:
+            readiness.append("未选择当前参考片段")
+        else:
+            reference["clip"] = dict(row)
+            path = directory / "references" / row["reference_id"] / "clips" / f"{row['id']}.wav"
+            try:
+                reference["clip_sha256"] = validate_clip(path, row["start_ms"], row["end_ms"])
+                if not adapter["is_simulated"]:
+                    reference["transcript"] = transcript_value(
+                        connection,
+                        row["id"],
+                        reference["clip_sha256"],
+                    )
+                    if not reference["transcript"]["text"].strip():
+                        readiness.append("当前参考片段缺少准确原话")
+            except (OSError, TaskError):
+                readiness.append("当前参考或绑定原话不可核定，请核对素材")
     snapshot = {
         "confirmation": document,
         "adapter": adapter,

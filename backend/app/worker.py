@@ -19,6 +19,7 @@ from uuid import uuid4
 from .directory_lock import DirectoryLock
 from .generation import PARAGRAPH_OUTPUT_CONTRACT, GenerationRegistry, TaskError
 from .local_model import LocalCosyVoiceAdapter
+from .local_qwen import LocalQwenAdapter
 from .references import timestamp
 from .segment_outputs import collect_segments
 from .storage import connect, pending_deletion_ids
@@ -228,16 +229,25 @@ class WorkerSession:
                 )
             reference = snapshot["reference"]
             clip = reference["clip"]
-            path = self.directory / "references" / reference["id"] / "clips" / f"{clip['id']}.wav"
+            adapter = self.registry.for_snapshot(snapshot)
+            if snapshot.get("reference_source") == "persona":
+                if not isinstance(adapter, LocalQwenAdapter) or reference != adapter.reference():
+                    raise TaskError(409, "persona_changed", "固定人物参考不匹配")
+                path = Path(adapter.require_configuration()["reference_path"])
+            else:
+                if isinstance(adapter, LocalQwenAdapter):
+                    raise TaskError(409, "persona_source_missing", "人物任务来源缺失")
+                path = (
+                    self.directory / "references" / reference["id"] / "clips" / f"{clip['id']}.wav"
+                )
             actual = validate_clip(path, clip["start_ms"], clip["end_ms"])
             if actual != reference["clip_sha256"]:
                 raise TaskError(409, "reference_changed", "任务参考文件已改变，未使用修改后的素材")
-            adapter = self.registry.for_snapshot(snapshot)
             if adapter.capability.model_dump(mode="json") != snapshot["adapter"]:
                 raise TaskError(409, "adapter_version_changed", "任务适配器版本已改变，原输入保留")
             self.progress(task_id, 0)
             destination = stage / "audio.wav"
-            if isinstance(adapter, LocalCosyVoiceAdapter):
+            if isinstance(adapter, (LocalCosyVoiceAdapter, LocalQwenAdapter)):
                 assert self.lock.file is not None
                 adapter.bind_execution(
                     path,
@@ -263,7 +273,7 @@ class WorkerSession:
                     (timestamp(), task_id),
                 )
             result = self.inspect_result(destination, snapshot, started, task_id)
-            if isinstance(adapter, LocalCosyVoiceAdapter):
+            if isinstance(adapter, (LocalCosyVoiceAdapter, LocalQwenAdapter)):
                 result.update(adapter.last_result_metadata)
             if snapshot.get("output_contract") == PARAGRAPH_OUTPUT_CONTRACT:
                 result["segments"] = collect_segments(stage, snapshot)

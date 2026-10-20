@@ -51,7 +51,7 @@ class TaskInput(StrictModel):
     request_id: UUID
     expected_revision: Revision
     expected_confirmation_id: UUID
-    expected_clip_id: UUID
+    expected_clip_id: UUID | None = None
     adapter_id: str = Field(min_length=1, max_length=100)
     mode: Literal["preview", "full"]
     paragraph_id: UUID | None
@@ -135,6 +135,7 @@ class GenerationRegistry:
         runtime_directory: Path | None = None,
     ) -> None:
         from .local_model import LocalCosyVoiceAdapter
+        from .local_qwen import LocalQwenAdapter
 
         self.adapters: dict[str, GenerationAdapter] = {}
         selected: Sequence[GenerationAdapter] = (
@@ -145,6 +146,11 @@ class GenerationRegistry:
                 LocalCosyVoiceAdapter(model_config_path, runtime_directory=runtime_directory),
             ]
         )
+        if adapters is None:
+            from .persona_config import config_path
+
+            if config_path().exists() or (config_path().parent / "persona-configs").is_dir():
+                selected = [LocalQwenAdapter(runtime_directory=runtime_directory), *selected]
         for adapter in selected:
             if adapter.capability.id in self.adapters:
                 raise ValueError("生成适配器 ID 重复")
@@ -161,17 +167,19 @@ class GenerationRegistry:
 
     def for_snapshot(self, snapshot: dict[str, Any]) -> GenerationAdapter:
         from .local_model import LocalCosyVoiceAdapter
+        from .local_qwen import LocalQwenAdapter
 
         adapter = self.require(snapshot["adapter"]["id"])
-        if isinstance(adapter, LocalCosyVoiceAdapter):
+        if isinstance(adapter, (LocalCosyVoiceAdapter, LocalQwenAdapter)):
             return adapter.frozen(snapshot["adapter"]["config_fingerprint"])
         return adapter
 
     def health(self, adapter_id: str) -> dict[str, Any]:
         from .local_model import LocalCosyVoiceAdapter
+        from .local_qwen import LocalQwenAdapter
 
         adapter = self.require(adapter_id)
-        if isinstance(adapter, LocalCosyVoiceAdapter):
+        if isinstance(adapter, (LocalCosyVoiceAdapter, LocalQwenAdapter)):
             return adapter.health()
         return {
             "adapter_id": adapter_id,

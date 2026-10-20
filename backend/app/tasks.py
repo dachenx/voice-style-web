@@ -23,6 +23,7 @@ from .generation import (
     TaskInput,
 )
 from .local_model import LocalCosyVoiceAdapter
+from .local_qwen import LocalQwenAdapter
 from .references import available, require_project, require_reference, timestamp
 from .storage import connect
 from .text_documents import conflict, load_document
@@ -163,49 +164,73 @@ def enqueue(
             raise TaskError(409, "confirmation_required", "当前文案尚未人工确认或确认已过时")
         if confirmation["id"] != str(payload.expected_confirmation_id):
             raise TaskError(409, "confirmation_conflict", "确认版本已改变，请重新核对")
-        selected = connection.execute(
-            "SELECT clip_id FROM project_reference_selection WHERE project_id = ?", (project_id,)
-        ).fetchone()
-        if selected is None or selected["clip_id"] != str(payload.expected_clip_id):
-            raise TaskError(
-                409, "reference_conflict", "当前参考片段已改变或尚未选择，请刷新素材核对"
-            )
-        clip_row = connection.execute(
-            "SELECT * FROM reference_clips WHERE id = ?", (str(payload.expected_clip_id),)
-        ).fetchone()
-        if clip_row is None:
-            raise TaskError(409, "reference_conflict", "当前参考片段不可用，请重新选择")
-        clip = dict(clip_row)
-        reference = require_reference(connection, project_id, clip["reference_id"])
-        path = directory / "references" / reference["id"] / "clips" / f"{clip['id']}.wav"
-        digest = validate_clip(path, clip["start_ms"], clip["end_ms"])
         adapter = registry.require(payload.adapter_id)
-        transcript = None
-        if not adapter.capability.is_simulated:
-            from .transcripts import transcript_value
-
-            if not isinstance(adapter, LocalCosyVoiceAdapter):
-                raise TaskError(503, "adapter_unavailable", "真实适配器未接入本机配置协议")
+        if isinstance(adapter, LocalQwenAdapter):
             configuration = adapter.require_configuration()
+            if (
+                payload.expected_clip_id is not None
+                or payload.expected_transcript_revision is not None
+            ):
+                raise TaskError(422, "persona_input_conflict", "人物模式不接受项目参考输入")
             if (
                 payload.expected_adapter_version != adapter.capability.version
                 or payload.expected_config_fingerprint != configuration["config_fingerprint"]
             ):
+                raise TaskError(409, "persona_version_conflict", "人物版本已改变，请重新选择")
+            reference = adapter.reference()
+            clip = reference["clip"]
+            digest = reference["clip_sha256"]
+            transcript = reference["transcript"]
+        else:
+            selected = connection.execute(
+                "SELECT clip_id FROM project_reference_selection WHERE project_id = ?",
+                (project_id,),
+            ).fetchone()
+            if selected is None or selected["clip_id"] != str(payload.expected_clip_id):
                 raise TaskError(
-                    409, "model_configuration_conflict", "模型版本或配置已改变，请刷新组件信息核对"
+                    409, "reference_conflict", "当前参考片段已改变或尚未选择，请刷新素材核对"
                 )
-            if clip["end_ms"] - clip["start_ms"] > adapter.capability.reference_max_duration_ms:
-                raise TaskError(422, "invalid_reference_duration", "本适配器参考片段不能超过30秒")
-            transcript = transcript_value(connection, clip["id"], digest)
-            if (
-                payload.expected_transcript_revision is None
-                or payload.expected_transcript_revision != transcript["revision"]
-            ):
-                raise TaskError(409, "transcript_conflict", "参考原话版本不一致，请保存并重新核对")
-            if transcript["revision"] == 0 or not transcript["text"].strip():
-                raise TaskError(
-                    422, "transcript_required", "请填写并保存当前参考片段实际说出的准确原话"
-                )
+            clip_row = connection.execute(
+                "SELECT * FROM reference_clips WHERE id = ?", (str(payload.expected_clip_id),)
+            ).fetchone()
+            if clip_row is None:
+                raise TaskError(409, "reference_conflict", "当前参考片段不可用，请重新选择")
+            clip = dict(clip_row)
+            reference = require_reference(connection, project_id, clip["reference_id"])
+            path = directory / "references" / reference["id"] / "clips" / f"{clip['id']}.wav"
+            digest = validate_clip(path, clip["start_ms"], clip["end_ms"])
+            transcript = None
+            if not adapter.capability.is_simulated:
+                from .transcripts import transcript_value
+
+                if not isinstance(adapter, LocalCosyVoiceAdapter):
+                    raise TaskError(503, "adapter_unavailable", "真实适配器未接入本机配置协议")
+                configuration = adapter.require_configuration()
+                if (
+                    payload.expected_adapter_version != adapter.capability.version
+                    or payload.expected_config_fingerprint != configuration["config_fingerprint"]
+                ):
+                    raise TaskError(
+                        409,
+                        "model_configuration_conflict",
+                        "模型版本或配置已改变，请刷新组件信息核对",
+                    )
+                if clip["end_ms"] - clip["start_ms"] > adapter.capability.reference_max_duration_ms:
+                    raise TaskError(
+                        422, "invalid_reference_duration", "本适配器参考片段不能超过30秒"
+                    )
+                transcript = transcript_value(connection, clip["id"], digest)
+                if (
+                    payload.expected_transcript_revision is None
+                    or payload.expected_transcript_revision != transcript["revision"]
+                ):
+                    raise TaskError(
+                        409, "transcript_conflict", "参考原话版本不一致，请保存并重新核对"
+                    )
+                if transcript["revision"] == 0 or not transcript["text"].strip():
+                    raise TaskError(
+                        422, "transcript_required", "请填写并保存当前参考片段实际说出的准确原话"
+                    )
         if payload.mode not in adapter.capability.modes:
             raise TaskError(422, "unsupported_mode", "该模拟适配器不支持此模式")
         ids = [paragraph["id"] for paragraph in confirmation["paragraphs"]]
@@ -225,6 +250,21 @@ def enqueue(
         }
         if transcript is not None:
             snapshot["reference"]["transcript"] = transcript
+        if isinstance(adapter, LocalQwenAdapter):
+            texts = {p["id"]: p["draft_text"] for p in confirmation["paragraphs"]}
+            if any(len(texts[i]) > 80 for i in ids):
+                raise TaskError(
+                    422, "text_limit_exceeded", "人物初版每段最多80个文字字符，请手动分段"
+                )
+            snapshot["reference_source"] = "persona"
+            snapshot["persona_id"] = adapter.capability.id
+            snapshot["generation_settings"] = {
+                "seed": configuration["seed"],
+                "sampling": configuration["sampling"],
+                "actual_icl_repetition_penalty": configuration["actual_icl_repetition_penalty"],
+                "per_paragraph_seed": True,
+                "lang_code": "Chinese",
+            }
         task = insert_task(connection, project_id, snapshot)
         remember_request(connection, project_id, str(payload.request_id), fingerprint, task["id"])
         return task, True

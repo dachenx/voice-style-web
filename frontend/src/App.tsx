@@ -5,6 +5,7 @@ import { ApiError, messageOf, request, validateName, type Project } from './api'
 import { forgetProjectOperations, getCreation, setCreation, useCreation } from './operationCache';
 import DeleteProjectDialog, { readDeleteIntent } from './DeleteProjectDialog';
 import ReferencePanel from './ReferencePanel';
+import { advancedPreference } from './uiPreferences';
 import TextPanel from './TextPanel';
 import { pendingDrafts } from './textDraftCache';
 import { transcriptDrafts } from './transcriptDraftCache';
@@ -327,8 +328,8 @@ export default function App() {
               </>}
           </section>}
         </div>
-        {selectedId && detail.state === 'ready' && <ReferencePanel key={`reference-${selectedId}`} project={detail.project}
-          onChanged={contentChanged} />}
+        {selectedId && detail.state === 'ready' && <details open={advancedPreference()}><summary>自选参考声音（人物模型无需上传）</summary><ReferencePanel key={`reference-${selectedId}`} project={detail.project}
+          onChanged={contentChanged} /></details>}
         {selectedId && <TextPanel key={`text-${selectedId}`} projectId={selectedId} onChanged={contentChanged} referenceRefresh={refresh} />}
         <footer className="page-footer"><span><HardDrive size={14} />本地保存 · 随时继续</span><span>文案整理 · 生成试听 · 版本选用 · 导出</span></footer>
       </div>

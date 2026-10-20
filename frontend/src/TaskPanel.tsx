@@ -75,18 +75,19 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
   const [pollTick, setPollTick] = useState(0);
   const adapter = adapters.find((item) => item.id === adapterId);
   const real = adapter !== undefined && !adapter.is_simulated;
+  const persona = adapter?.reference_source === 'persona';
   const stamp = `${referenceRefresh}:${inputRefresh}`;
   const health = adapterHealth?.value.adapter_id === adapterId && adapterHealth.stamp === stamp ? adapterHealth.value : null;
   const selected = library?.references.flatMap((reference) => reference.clips.map((clip) => ({ reference, clip })))
     .find(({ clip }) => clip.id === library.active_clip_id);
   const confirmed = doc?.latest_confirmation;
   const selectedParagraph = doc?.paragraphs.find((paragraph) => paragraph.id === paragraphId) ?? doc?.paragraphs[0];
-  const generationBlocked = !inputReady || inputStamp !== `${referenceRefresh}:${inputRefresh}` ? '等待参考与组件读取，请稍后或刷新重试。' : !selected ? '请先在参考声音中保存并选择当前片段。' :
+  const generationBlocked = !inputReady || inputStamp !== `${referenceRefresh}:${inputRefresh}` ? '等待参考与组件读取，请稍后或刷新重试。' : !persona && !selected ? '请先在参考声音中保存并选择当前片段。' :
           !adapter ? '生成组件不可用，请刷新组件信息。' :
             real && (!health || !health.execution_available || healthError) ? '真实模型尚不可调用，请先处理下方的模型状态提示。' :
-              real && adapter.reference_max_duration_ms !== undefined && selected.clip.end_ms - selected.clip.start_ms > adapter.reference_max_duration_ms ?
+              real && !persona && adapter.reference_max_duration_ms !== undefined && selected!.clip.end_ms - selected!.clip.start_ms > adapter.reference_max_duration_ms ?
                 `参考片段超过该模型的 ${adapter.reference_max_duration_ms / 1000} 秒限制，请重新选段。` :
-                real && (!transcript?.ready || transcript.clipId !== selected.clip.id) ? '请填写、核对并保存当前参考片段的准确原话。' : '';
+                real && !persona && (!transcript?.ready || transcript.clipId !== selected!.clip.id) ? '请填写、核对并保存当前参考片段的准确原话。' : '';
   const blocked = !doc ? '等待文案读取。' : textBusy ? '请等待文案操作完成。' : dirty ? '有未保存文案，请先保存并重新确认。' :
     textError ? '文案读取或保存出错，请先处理文案工作台中的提示。' :
       !doc.confirmation_current || !confirmed ? '请先保存完整文案并人工确认。' : generationBlocked;
@@ -121,7 +122,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     ]).then(([value, capabilities]) => {
       if (abort.signal.aborted || version !== inputOperation.current) return;
       setLibrary(value); setAdapters(capabilities.adapters);
-      setAdapterId(old => old || capabilities.adapters.find(item => !item.is_simulated)?.id || capabilities.adapters[0]?.id || ''); setInputReady(true); setInputStamp(`${referenceRefresh}:${inputRefresh}`); setInputError('');
+      setAdapterId(old => old || capabilities.adapters.find(item => item.reference_source === 'persona')?.id || capabilities.adapters.find(item => !item.is_simulated)?.id || capabilities.adapters[0]?.id || ''); setInputReady(true); setInputStamp(`${referenceRefresh}:${inputRefresh}`); setInputError('');
     }).catch((cause) => {
       if (abort.signal.aborted || version !== inputOperation.current) return;
       setInputReady(false); setInputError(messageOf(cause));
@@ -196,15 +197,15 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     }
   }
   function submit(mode: 'preview' | 'full', explicitParagraphId?: string) {
-    if (preparingRef.current || blocked || pending || busyRef.current || !doc || !confirmed || !selected || !adapter || !selectedParagraph) return;
+    if (preparingRef.current || blocked || pending || busyRef.current || !doc || !confirmed || (!persona && !selected) || !adapter || !selectedParagraph) return;
     void send({ kind: 'create', input: { request_id: crypto.randomUUID(), expected_revision: doc.revision,
-      expected_confirmation_id: confirmed.id, expected_clip_id: selected.clip.id, adapter_id: adapter.id,
+      expected_confirmation_id: confirmed.id, expected_clip_id: persona ? null : selected!.clip.id, adapter_id: adapter.id,
       mode, paragraph_id: mode === 'preview' ? explicitParagraphId ?? selectedParagraph.id : null, parameters: {},
-      ...(real ? { expected_transcript_revision: transcript!.value!.revision, expected_adapter_version: adapter.version,
+      ...(real ? { ...(!persona ? { expected_transcript_revision: transcript!.value!.revision } : {}), expected_adapter_version: adapter.version,
         expected_config_fingerprint: adapter.config_fingerprint } : {}) } });
   }
   async function generate() {
-    if (generationBlocked || pending || busyRef.current || preparingRef.current || textBusy || !selected || !adapter) return;
+    if (generationBlocked || pending || busyRef.current || preparingRef.current || textBusy || (!persona && !selected) || !adapter) return;
     const abort = lifetime.current;
     if (!abort || abort.signal.aborted) return;
     preparingRef.current = true; setPreparing(true); setActionError('');
@@ -213,9 +214,9 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       if (abort.signal.aborted) return;
       if (!prepared.confirmation_current || !prepared.latest_confirmation) throw new Error('本次文案尚未准备完成，请重试。');
       await send({ kind: 'create', input: { request_id: crypto.randomUUID(), expected_revision: prepared.revision,
-        expected_confirmation_id: prepared.latest_confirmation.id, expected_clip_id: selected.clip.id,
+        expected_confirmation_id: prepared.latest_confirmation.id, expected_clip_id: persona ? null : selected!.clip.id,
         adapter_id: adapter.id, mode: 'full', paragraph_id: null, parameters: {},
-        ...(real ? { expected_transcript_revision: transcript!.value!.revision, expected_adapter_version: adapter.version,
+        ...(real ? { ...(!persona ? { expected_transcript_revision: transcript!.value!.revision } : {}), expected_adapter_version: adapter.version,
           expected_config_fingerprint: adapter.config_fingerprint } : {}) } });
     } catch (cause) {
       if (!abort.signal.aborted) setActionError(messageOf(cause) + ' 尚未提交生成任务，请处理后重试。');
@@ -252,18 +253,19 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
 
   return <section className="reference-panel task-panel" aria-label={real ? '真实语音与任务' : '模拟生成与任务'}>
     <div className="reference-heading"><div><span className="eyebrow">VOICE GENERATION</span><h2>生成配音</h2>
-      <p>{real ? '使用本机模型和当前参考片段生成语音。武汉话、人物相似度和自然度需要生成后逐项试听。' : '仅生成合成测试音，用于验证排队和恢复流程；不会朗读文案、复刻参考声音或生成武汉话。'}</p></div><span className="simulation-badge">{real ? '本机真实模型 · 效果待验' : '模拟模式'}</span></div>
+      <p>{real ? '使用本机模型生成语音。武汉话、人物相似度和自然度需要生成后逐项试听。' : '仅生成合成测试音，用于验证排队和恢复流程；不会朗读文案、复刻参考声音或生成武汉话。'}</p></div><span className="simulation-badge">{real ? '本机真实模型 · 效果待验' : '模拟模式'}</span></div>
     <details open={advancedPreference()}><summary>详细任务状态</summary><div className="next-step" role="status" aria-label="生成环节下一步"><span className="step-number">生成环节 · 下一步</span><p>{nextStep}</p></div></details>
     <p>当前组件：{adapter?.label ?? '正在读取…'} · {real ? '真实语音' : '模拟测试音，不朗读文案'}</p>
-    <details open={advancedPreference()}><summary>模型选择与详细设置</summary>
-    <p className="audio-hint">建议先做短段测试，再将全部段落排队。当前适配器没有语速、情绪或读音备注控制。</p>
+    {persona && <p className="audio-hint">已绑定此人物版本的固定参考声音和原话，无需上传项目素材。每段最多80个文字字符，长稿请展开高级编辑手动分段。</p>}
     <label className="audio-label" htmlFor={`generation-adapter-${projectId}`}>选择生成组件</label>
     <select id={`generation-adapter-${projectId}`} value={adapterId} disabled={preparing || busy || !!pending} onChange={(event) => {
       saveAdapter(event.target.value); setAdapterId(event.target.value); setAdapterHealth(null); setHealthError('');
     }}>{adapters.map((item) => <option key={item.id} value={item.id}>{item.label}{item.is_simulated ? '（模拟）' : '（真实模型）'}</option>)}</select>
+    <details open={advancedPreference()}><summary>模型选择与详细设置</summary>
+    <p className="audio-hint">当前适配器没有语速、情绪或读音备注控制。</p>
     <div className="task-input-summary">
       <p>确认文案：{doc?.confirmation_current && confirmed && !dirty ? `版本 ${confirmed.revision}` : '尚不可用'}</p>
-      <p>当前参考：{selected ? `${selected.reference.filename} · ${clipRange(selected.clip)}` : '未选择'}</p>
+      <p>当前参考：{persona ? '人物版本固定参考（自动使用）' : selected ? `${selected.reference.filename} · ${clipRange(selected.clip)}` : '未选择'}</p>
       <p>生成组件：{adapter ? `${adapter.label} · ${adapter.version}` : '尚不可用'}</p>
       <button className="text-button" onClick={() => { setInputReady(false); setInputRefresh((value) => value + 1); }}>刷新参考与组件</button>
     </div>
@@ -272,13 +274,13 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     {real && <div className="model-status" aria-label="真实模型状态">
       <p>{health ? !health.configured ? '模型未配置' : !health.configuration_valid ? '模型配置不可用' : health.execution_available ? '模型调用入口可用 · 任务执行时加载' : '模型调用入口尚不可用' : '正在检查模型环境…'}</p>
       <p className="audio-hint">{health?.model_loaded ? '本次检查时模型已加载；声音效果仍待试听。' : health?.last_loaded_at ? `最近加载成功：${new Date(health.last_loaded_at).toLocaleString('zh-CN')}。本次检查时模型未加载，声音效果仍待试听。` : '尚无已加载成功的证明；配置存在不代表声音可用。'} 使用“刷新参考与组件”更新状态。</p>
-      <details open={advancedPreference()}><summary>查看模型环境详情</summary><p className="audio-hint">模型：{adapter.model_id ?? '待配置'} · {adapter.model_revision ?? '版本待核对'}；参考片段最多 {(adapter.reference_max_duration_ms ?? 30000) / 1000} 秒。</p>
+      <details open={advancedPreference()}><summary>查看模型环境详情</summary><p className="audio-hint">模型：{adapter.model_id ?? '待配置'} · {adapter.model_revision ?? '版本待核对'}；{persona ? '已绑定固定人物参考，无需上传。' : `参考片段最多 ${(adapter.reference_max_duration_ms ?? 30000) / 1000} 秒。`}</p>
       {adapter.max_text_tokens !== undefined && <p className="audio-hint">每段最多 {adapter.max_text_tokens} 个模型 token，提交后由模型分词器核对；较长文案请在文案工作台分段。{adapter.limit_note}</p>}
       </details>
       {health?.error && <p role="alert" className="error-box">{health.error.message}</p>}
       {healthError && <p role="alert" className="error-box">模型检查失败：{healthError}</p>}
     </div>}
-    {real && selected && <ReferenceTranscriptEditor key={selected.clip.id} projectId={projectId}
+    {real && !persona && selected && <ReferenceTranscriptEditor key={selected.clip.id} projectId={projectId}
       referenceId={selected.reference.id} clipId={selected.clip.id} onReady={setTranscript} onChanged={onChanged} />}
     {generationBlocked && <p role="status" aria-label="生成准备提示" className="field-hint">{generationBlocked}</p>}
     <p className="audio-hint">点击生成即确认按上方全部文案生成；会自动保存并固定本次输入。后续编辑不会改变运行中的任务。</p>
