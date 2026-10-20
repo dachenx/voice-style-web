@@ -43,6 +43,8 @@ test('真实删除二次确认取消、快照清空、版本移除和刷新保�
   expect((await page.request.get(`${base}/tasks/${task.id}/audio`)).status()).toBe(410);
   const versions = await (await page.request.get(`${base}/paragraph-versions?adapter_id=simulated-tone`)).json();
   expect(versions.paragraphs[0].versions).toEqual([]);
+  await page.getByRole('button', { name: '完成', exact: true }).click();
+  await expect(page.getByRole('heading', { name: '任务记录', exact: true })).toBeFocused();
   await page.reload(); await expect(page.getByText('尚无生成任务。')).toBeVisible();
   await expect(page.getByLabel('要朗读的文案', { exact: true })).toHaveValue('测试朗读稿');
 });
@@ -106,6 +108,8 @@ test('文件待清理独立显示并可刷新恢复与同ID重试', async ({ pag
   });
   await card.getByRole('button', { name: '删除任务及音频' }).click();
   await page.getByRole('button', { name: '确认永久删除任务' }).click();
+  await expect(page.getByRole('dialog', { name: '确认删除任务' }).getByRole('alert')).toBeInViewport();
+  await page.getByRole('button', { name: '关闭提示' }).click();
   await expect(page.getByLabel('任务文件待清理')).toBeVisible();
   await expect(card).toHaveCount(0);
   await page.reload(); await expect(page.getByLabel('任务文件待清理')).toBeVisible();
@@ -120,7 +124,9 @@ test('未知删除保留重试入口，服务端确认后撤掉记录', async ({
   await page.route(`**${base}/tasks/${task.id}`, route => route.request().method() === 'DELETE' ? route.abort() : route.continue());
   await card.getByRole('button', { name: '删除任务及音频' }).click();
   await page.getByRole('button', { name: '确认永久删除任务' }).click();
+  await page.getByRole('button', { name: '关闭提示' }).click();
   await expect(page.getByLabel('任务删除待核对')).toBeVisible();
+  await expect(page.getByRole('heading', { name: '任务记录', exact: true })).toBeFocused();
   await page.reload();
   await expect(page.getByLabel('任务删除待核对')).toBeVisible();
   await page.unroute(`**${base}/tasks/${task.id}`);
@@ -142,10 +148,73 @@ test('另一任务待清理不能覆盖当前未知删除意图', async ({ page 
   await page.route(`**${base}/tasks/${task.id}`, route => route.request().method() === 'DELETE' ? route.abort() : route.continue());
   await card.getByRole('button', { name: '删除任务及音频' }).click();
   await page.getByRole('button', { name: '确认永久删除任务' }).click();
+  await page.getByRole('button', { name: '关闭提示' }).click();
   await expect(page.getByLabel('任务删除待核对')).toContainText(task.id);
   await expect(page.getByRole('button', { name: '重试清理文件' })).toBeDisabled();
   expect(JSON.parse((await page.evaluate(id => sessionStorage.getItem(`voice-task-deletion:${id}`), project.id))!)).toMatchObject({ task_id: task.id });
   await page.reload();
   await expect(page.getByRole('button', { name: '重试清理文件' })).toBeDisabled();
   await expect(page.getByLabel('任务删除待核对')).toContainText(task.id);
+});
+
+test('长列表底部首击确认就在视口内，安全焦点Escape及失败反馈', async ({ page }) => {
+  await page.setViewportSize({ width: page.viewportSize()!.width, height: 665 });
+  const { base, task, card } = await ready(page);
+  const original = await (await page.request.get(`${base}/tasks/${task.id}`)).json();
+  const many = Array.from({ length: 20 }, (_, index) => ({ ...original, id: randomUUID(), created_at: new Date(Date.now() + 1000 * (index + 1)).toISOString() }));
+  await page.route(`**${base}/tasks`, route => route.fulfill({ json: { tasks: [...many, original], deletions: [], worker: { state: 'idle' } } }));
+  await page.getByRole('button', { name: '刷新任务', exact: true }).click();
+  await expect(page.locator('[data-task-id]')).toHaveCount(21);
+  let deletes = 0;
+  await page.route(`**${base}/tasks/${task.id}`, route => {
+    if (route.request().method() !== 'DELETE') return route.continue();
+    deletes++;
+    return route.fulfill({ status: 409, json: { error: { code: 'task_selected', message: '该任务音频已被选用，请先改选其他版本。' } } });
+  });
+  const trigger = card.getByRole('button', { name: '删除任务及音频' });
+  await trigger.click();
+  const dialog = page.getByRole('dialog', { name: '确认删除任务' });
+  const cancel = dialog.getByRole('button', { name: '取消删除', exact: true });
+  const confirm = dialog.getByRole('button', { name: '确认永久删除任务' });
+  await expect(dialog).toBeInViewport();
+  await expect(cancel).toBeInViewport(); await expect(confirm).toBeInViewport();
+  await expect(cancel).toBeFocused();
+  expect(deletes).toBe(0);
+  await page.keyboard.press('Shift+Tab'); await expect(confirm).toBeFocused();
+  await page.keyboard.press('Tab'); await expect(cancel).toBeFocused();
+  await page.keyboard.press('Escape');
+  await expect(dialog).toHaveCount(0); await expect(trigger).toBeFocused();
+  expect(deletes).toBe(0);
+  await trigger.click(); await cancel.click();
+  await expect(trigger).toBeFocused(); expect(deletes).toBe(0);
+  await trigger.click(); await confirm.click();
+  await expect(dialog.getByRole('alert')).toBeInViewport();
+  await expect(dialog.getByRole('alert')).toContainText('已被选用');
+  expect(deletes).toBe(1);
+  await dialog.getByRole('button', { name: '关闭提示' }).click();
+  await expect(trigger).toBeFocused();
+});
+
+test('删除在途禁止Escape和重复确认，完成后可关闭', async ({ page }) => {
+  const { base, task, card } = await ready(page);
+  let release!: () => void; const barrier = new Promise<void>(resolve => { release = resolve; });
+  let entered!: () => void; const start = new Promise<void>(resolve => { entered = resolve; });
+  let deletes = 0;
+  await page.route(`**${base}/tasks/${task.id}`, async route => {
+    if (route.request().method() !== 'DELETE') return route.continue();
+    deletes++;
+    const response = await route.fetch(); entered(); await barrier;
+    await route.fulfill({ response });
+  });
+  await card.getByRole('button', { name: '删除任务及音频' }).click();
+  await page.getByRole('button', { name: '确认永久删除任务' }).click(); await start;
+  const dialog = page.getByRole('dialog', { name: '确认删除任务' });
+  await expect(dialog.getByRole('button', { name: '正在删除…' })).toBeDisabled();
+  await expect(dialog.getByRole('button', { name: '取消删除' })).toBeDisabled();
+  await page.keyboard.press('Escape'); await page.keyboard.press('Enter');
+  await expect(dialog).toBeInViewport(); expect(deletes).toBe(1);
+  release();
+  await expect(dialog.getByLabel('任务操作状态')).toContainText('已永久删除');
+  await dialog.getByRole('button', { name: '完成', exact: true }).click();
+  await expect(dialog).toHaveCount(0); expect(deletes).toBe(1);
 });

@@ -1,30 +1,20 @@
 {
   "id": "M07",
-  "title": "M07 任务记录与生成音频删除",
-  "base_commit": "923f2d4e03429053388f4e6bf4b7f76f1822397d",
+  "title": "M07 任务删除确认可见性修复",
+  "base_commit": "a4e0d6df6446898f8c670acf77e9dee12531dd6e",
   "allowed_paths": [
     "quality/active-module.json",
-    "backend/app/main.py",
-    "backend/app/task_deletion.py",
-    "backend/app/tasks.py",
-    "backend/app/versions.py",
-    "backend/app/project_deletion.py",
-    "backend/app/storage.py",
-    "backend/app/migrations/010_task_deletions.sql",
-    "backend/tests/test_task_deletion.py",
-    "backend/tests/test_api.py",
-    "backend/tests/test_references.py",
-    "backend/tests/test_text_documents.py",
-    "backend/tests/test_versions.py",
-    "backend/tests/test_model_inputs.py",
     "frontend/src/TaskPanel.tsx",
+    "frontend/src/TaskDeleteDialog.tsx",
+    "frontend/src/styles.css",
     "frontend/e2e/task-deletion.spec.ts",
+    "docs/reviews/M07-task-delete-dialog.json",
     "docs/项目方案与决策记录.md",
     "docs/快速使用指南.md",
-    "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-task-delete.json"
+    "docs/优化与问题修复记录.md"
   ],
   "acceptance": [
+    "长列表首击确认位于视口，取消默认焦点、Escape及焦点回退正常；执行与错误反馈在弹窗",
     "终态任务二次确认删除正文及生成文件；选用和导出引用阻止删除",
     "持久清理、旧请求不复活、并发互斥与恢复；不影响其他资产"
   ],
@@ -51,5 +41,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-task-delete.json"
+  "review": "docs/reviews/M07-task-delete-dialog.json"
 }

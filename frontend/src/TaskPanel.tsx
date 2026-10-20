@@ -4,6 +4,7 @@ import { advancedPreference, adapterPreference, saveAdapter } from './uiPreferen
 import type { Clip, ReferenceAudio } from './ReferencePanel';
 import type { TextDocument } from './TextPanel';
 import VersionPanel from './VersionPanel';
+import TaskDeleteDialog from './TaskDeleteDialog';
 import ReferenceTranscriptEditor, { type TranscriptReadiness } from './ReferenceTranscript';
 import type { Adapter, AdapterHealth, Task, TaskDetail, TaskInput, WorkerHealth } from './taskTypes';
 
@@ -54,7 +55,8 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
   const base = `/projects/${projectId}/tasks`;
   const [tasks, setTasks] = useState<Task[]>([]);
   const [deletions, setDeletions] = useState<Deletion[]>([]);
-  const [deleteTarget, setDeleteTarget] = useState<Task | null>(null);
+  const [deleteTarget, setDeleteTarget] = useState<(Deletion & { label?: string }) | null>(null);
+  const historyHeading = useRef<HTMLHeadingElement>(null);
   const [unknownDeletion, setUnknownDeletion] = useState<Deletion | null>(() => restoreDeletion(projectId));
   const removedIds = useRef(new Set<string>());
   const [worker, setWorker] = useState<WorkerHealth | null>(null);
@@ -278,7 +280,8 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       return;
     }
     busyRef.current = true; setBusy(true); setActionError(''); setNotice('');
-    listOperation.current += 1; detailOperation.current += 1; setDeleteTarget(null);
+    listOperation.current += 1; detailOperation.current += 1;
+    setDeleteTarget(old => old ?? item);
     try {
       sessionStorage.setItem(deletionKey(projectId), JSON.stringify(item));
       setUnknownDeletion(item);
@@ -362,26 +365,22 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     </details>
     {pending && <div className="pending-task"><p>上次提交的结果尚未核对。恢复请求会使用当时的固定输入，不会改用当前编辑内容。</p>
       <button className="button secondary" disabled={preparing || busy} onClick={() => void send(pending)}>核对并重试上次提交</button></div>}
-    {actionError && <p role="alert" aria-label="任务操作错误" className="error-box">{actionError}</p>}
-    <p role="status" aria-label="任务操作状态" className="reference-notice">{notice}</p>
+    {!deleteTarget && actionError && <p role="alert" aria-label="任务操作错误" className="error-box">{actionError}</p>}
+    {!deleteTarget && <p role="status" aria-label="任务操作状态" className="reference-notice">{notice}</p>}
     <VersionPanel key={projectId} projectId={projectId} adapterId={adapterId} dirty={dirty}
       refreshStamp={`${doc?.revision}:${doc?.latest_confirmation?.id}:${referenceRefresh}:${inputRefresh}:${transcript?.value?.revision}:${tasks.filter((task) => task.state === 'succeeded').map((task) => task.id).join(',')}`}
       blocked={preparing ? '正在准备本次生成。' : blocked || (pending ? '请先核对上次提交结果。' : busy ? '请等待任务操作完成。' : '')}
       onGenerate={(id) => submit('preview', id)} onChanged={onChanged} />
-    <div className="subsection-title"><h3>任务记录</h3><button className="text-button" onClick={() => setPollTick((tick) => tick + 1)}>刷新任务</button></div>
+    <div className="subsection-title"><h3 ref={historyHeading} tabIndex={-1}>任务记录</h3><button className="text-button" onClick={() => setPollTick((tick) => tick + 1)}>刷新任务</button></div>
     <p className="audio-hint">删除会同时清除该任务的整篇、分段音频及候选版本，不能恢复。已选用或被导出引用时不能删除；排队请先取消，运行请等待完成。</p>
     {unknownDeletion && <div role="status" aria-label="任务删除待核对"><p>任务 {unknownDeletion.task_id} 的删除结果待核对。</p>
       <button disabled={busy || preparing} onClick={() => void removeTask(unknownDeletion)}>核对并重试删除</button></div>}
     {deletions.map(item => <div key={item.task_id} role="status" aria-label="任务文件待清理">
       <p>{new Date(item.created_at).toLocaleString('zh-CN')} · 任务 {item.task_id}：记录已移除，生成文件待清理。</p>
       <button disabled={busy || preparing || (!!unknownDeletion && unknownDeletion.task_id !== item.task_id)} onClick={() => void removeTask(item)}>重试清理文件</button></div>)}
-    {deleteTarget && <section role="dialog" aria-label="确认删除任务">
-      <h4>永久删除这条任务及音频？</h4>
-      <p>{new Date(deleteTarget.created_at).toLocaleString('zh-CN')} · {deleteTarget.mode === 'full' ? '全文' : '短段'} · {labels[deleteTarget.state]} · {deleteTarget.id}</p>
-      <p>删除任务记录、已有的整篇和分段生成文件（如有）及对应候选版本。不会删除项目文案、参考声音、模型或其他任务。不可恢复。</p>
-      <button disabled={busy || preparing} onClick={() => setDeleteTarget(null)}>取消删除</button>
-      <button disabled={busy || preparing} onClick={() => void removeTask({ task_id: deleteTarget.id, created_at: deleteTarget.created_at, completed: 0 })}>确认永久删除任务</button>
-    </section>}
+    {deleteTarget && <TaskDeleteDialog identity={`${new Date(deleteTarget.created_at).toLocaleString('zh-CN')} · ${deleteTarget.label ?? '任务'} · ${deleteTarget.task_id}`}
+      busy={busy || preparing} error={actionError} success={notice === '该任务记录和生成音频已永久删除。'}
+      onConfirm={() => void removeTask(deleteTarget)} onClose={() => setDeleteTarget(null)} fallback={() => historyHeading.current} />}
     <p className="audio-hint">单任务工作进程 · {worker?.state === 'running' ? '正在处理任务' : worker?.state === 'idle' ? '已就绪' : '状态待核对'}。关闭页面不停止已保存的队列。</p>
     {worker?.error && <p role="alert" className="error-box">工作进程不可用：{worker.error.message} 队列记录仍保留，请重启本地服务后核对。</p>}
     {listError && <p role="alert" aria-label="任务读取错误" className="error-box">{listError}</p>}
@@ -396,7 +395,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       {task.error && <p className="error-box">{task.error.message}（{task.error.code}）</p>}
       <div className="task-actions"><button className="text-button" onClick={() => void showDetail(task)}>查看任务快照</button>
         <button className="text-button" disabled={preparing || busy || !!unknownDeletion || ['queued', 'running'].includes(task.state)}
-          onClick={() => setDeleteTarget(task)}>删除任务及音频</button>
+          onClick={() => { setActionError(''); setNotice(''); setDeleteTarget({ task_id: task.id, created_at: task.created_at, completed: 0, label: `${task.mode === 'full' ? '全文' : '短段'} · ${labels[task.state]}` }); }}>删除任务及音频</button>
         {task.state === 'queued' && <button className="text-button" disabled={preparing || busy} onClick={() => void cancel(task)}>取消排队</button>}
         {task.state === 'failed' && <button className="button secondary" disabled={preparing || busy || !!pending} onClick={() => void send({ kind: 'retry', taskId: task.id, input: { request_id: crypto.randomUUID() } })}>按原输入重试</button>}</div>
       {task.state === 'running' && <p className="audio-hint">正在运行的任务暂不支持取消。</p>}

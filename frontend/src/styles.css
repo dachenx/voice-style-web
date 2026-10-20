@@ -114,6 +114,8 @@ h1 { font-size: 32px; font-weight: 600; letter-spacing: -1px; line-height: 1.35;
 .list-error button { color: #9a4a31; }
 dialog { border: 1px solid #dce4d2; width: min(460px, calc(100vw - 40px)); max-height: calc(100dvh - 40px); overflow-y: auto; padding: 28px; border-radius: 14px; color: #314934; box-shadow: 0 24px 90px #23382025; }
 dialog::backdrop { background: #25352755; backdrop-filter: blur(3px); }
+.task-delete-dialog { overflow-wrap: anywhere; }
+.task-delete-dialog .dialog-actions { flex-wrap: wrap; position: sticky; bottom: -28px; background: white; padding-block: 12px; }
 .dialog-heading { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 22px; }
 .icon-tile { width: 45px; height: 45px; border-radius: 12px; display: grid; place-items: center; background: #edf3e6; color: #789767; }
 dialog h2 { font-size: 22px; font-weight: 550; }
