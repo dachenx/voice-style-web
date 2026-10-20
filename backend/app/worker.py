@@ -4,6 +4,7 @@ import argparse
 import hashlib
 import json
 import logging
+import os
 import shutil
 import signal
 import sqlite3
@@ -374,8 +375,11 @@ def main() -> int:
     if args.watch_parent:
 
         def parent_closed() -> None:
-            sys.stdin.buffer.read(1)
-            session.stop.set()
+            # A daemon must not hold BufferedReader's lock during SIGTERM shutdown.
+            try:
+                os.read(sys.stdin.fileno(), 1)
+            finally:
+                session.stop.set()
 
         threading.Thread(target=parent_closed, daemon=True).start()
     try:

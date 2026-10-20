@@ -90,11 +90,11 @@ class RuntimeTests(unittest.TestCase):
         with patch.object(check_app, "PYTHON", Path(sys.executable)), \
                 patch.object(check_app, "configured_environment", return_value=env), \
                 patch.object(check_app, "validate_node"), \
-                patch.object(check_app.subprocess, "run") as run:
+                patch.object(check_app, "run_check") as run:
             check_app.main([])
             self.assertEqual(run.call_count, 7)
             self.assertEqual([call.kwargs["timeout"] for call in run.call_args_list],
-                             [180, 180, 180, 180, 180, 180, 300])
+                             [180, 180, 240, 180, 180, 180, 600])
             for call in run.call_args_list:
                 self.assertEqual(call.kwargs["env"], env)
                 self.assertTrue(call.kwargs["check"])
@@ -114,15 +114,30 @@ class RuntimeTests(unittest.TestCase):
                     patch.object(check_app, "PYTHON", Path(sys.executable)), \
                     patch.object(check_app, "configured_environment", return_value={"PATH": "fixture"}), \
                     patch.object(check_app, "validate_node"), \
-                    patch.object(check_app.subprocess, "run", side_effect=[
+                    patch.object(check_app, "run_check", side_effect=[
                         subprocess.CompletedProcess([], 0) for _ in range(6)
                     ] + [error]) as run:
                 with self.assertRaises(type(error)):
                     check_app.main([])
                 self.assertEqual(run.call_count, 7)
                 self.assertEqual(run.call_args.args[0], command)
-                self.assertEqual(run.call_args.kwargs["timeout"], 300)
+                self.assertEqual(run.call_args.kwargs["timeout"], 600)
                 self.assertTrue(run.call_args.kwargs["check"])
+
+    def test_suites_isolate_checks_and_device_selection(self):
+        with patch.object(check_app, "PYTHON", Path(sys.executable)), \
+                patch.object(check_app, "configured_environment", return_value={"PATH": "fixture"}), \
+                patch.object(check_app, "validate_node") as node, \
+                patch.object(check_app, "run_check") as run:
+            check_app.main(["--suite", "backend"])
+            self.assertEqual(run.call_count, 3)
+            node.assert_not_called()
+            run.reset_mock()
+            check_app.main(["--suite", "browser", "--project", "mobile"])
+            node.assert_called_once()
+            run.assert_called_once()
+            self.assertEqual(run.call_args.args[0][-2:], ["--", "--project=mobile"])
+            self.assertEqual(run.call_args.kwargs["timeout"], 600)
 
 
 if __name__ == "__main__":

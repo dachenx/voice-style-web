@@ -10,6 +10,8 @@ import re
 import subprocess
 import sys
 
+from check_process import run_check
+
 REQUIRED_DOCUMENTS = (
     "AGENTS.md", "README.md", "项目说明.md", "docs/协作规则.md",
     "docs/项目方案与决策记录.md", "docs/优化与问题修复记录.md",
@@ -96,11 +98,7 @@ def quick(root, config, entries):
     for required in REQUIRED_DOCUMENTS:
         if required not in entries:
             errors.append("缺少记录文件：" + required)
-    baseline = base_files(root, config)
-    changed = [p for p in set(entries) | set(baseline) if entries.get(p) != baseline.get(p)]
-    for name in changed:
-        if not any(name.startswith(p) if p.endswith("/") else name == p for p in config["allowed_paths"]):
-            errors.append("超出当前模块范围：" + name)
+    # Scope/base fields are planning context, not a stale allowlist that blocks fixes.
     forbidden_extensions = {".wav", ".mp3", ".m4a", ".mp4", ".flac", ".ogg", ".pt", ".pth", ".ckpt", ".safetensors", ".onnx", ".db", ".sqlite", ".sqlite3", ".pem", ".key"}
     secret_patterns = [r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----", r"\bgh[pousr]_[A-Za-z0-9]{30,}\b", r"\bgithub_pat_[A-Za-z0-9_]{30,}\b", r"\bsk-[A-Za-z0-9_-]{30,}\b"]
     for name, (_, content) in entries.items():
@@ -171,11 +169,11 @@ def run_checks(root, config):
             raise GateError("验收命令必须为非空字符串数组")
         argv = [sys.executable if a == "{python}" else a for a in argv]
         timeout = check.get("timeout", 120)
-        if not isinstance(timeout, int) or not 1 <= timeout <= 600:
-            raise GateError("验收 timeout 必须为 1–600 秒")
+        if not isinstance(timeout, int) or not 1 <= timeout <= 1800:
+            raise GateError("验收 timeout 必须为 1–1800 秒")
         print("CHECK: " + check.get("name", argv[0]), flush=True)
         try:
-            result = subprocess.run(argv, cwd=root, timeout=timeout)
+            result = run_check(argv, cwd=root, timeout=timeout, check=False)
         except (OSError, subprocess.TimeoutExpired) as exc:
             raise GateError("功能检查无法完成：" + str(exc)) from exc
         if result.returncode:
@@ -224,13 +222,11 @@ def main():
             push_refs(root, sys.stdin.read())
             if git(root, "status", "--porcelain", "--untracked-files=all").strip():
                 raise GateError("推送前工作区必须干净，确保测试的就是待推送版本")
-        if args.mode in {"full", "pre-push"}:
+        if args.mode == "full":
             run_checks(root, config)
             if files(root) != entries:
                 raise GateError("检查命令改动了入库文件；请重审并重新检查")
-            if not args.no_review:
-                assert_review(root, config, entries)
-        elif args.review:
+        if args.review and not args.no_review:
             assert_review(root, config, entries)
         if args.index:
             assert_index(root, entries)

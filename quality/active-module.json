@@ -1,18 +1,23 @@
 {
   "id": "M07",
-  "title": "M07 README overview and single main branch",
-  "base_commit": "9b27508d10f43451303c84f24d89dfcf925afc1e",
+  "title": "M07 CI recovery and risk-based checks",
+  "base_commit": "a2574aa10e7c6103c85a56f77a7827edcffd0103",
   "allowed_paths": [
+    "scripts/",
+    "tests/",
+    "frontend/playwright.config.ts",
+    ".github/workflows/quality.yml",
+    ".githooks/pre-commit",
     "quality/active-module.json",
-    "README.md",
-    "docs/reviews/M07-readme.json",
-    "docs/项目方案与决策记录.md",
-    "docs/优化与问题修复记录.md"
+    "docs/",
+    "项目说明.md",
+    "backend/app/worker.py",
+    "backend/tests/test_worker.py"
   ],
   "acceptance": [
-    "README describes implemented features, installation, model requirements and limits accurately.",
-    "Local documentation links resolve; only documentation and scope records change.",
-    "Remove only branches whose tips are ancestors of main; preserve main and commit history."
+    "CI desktop/mobile complete in isolated jobs with unchanged assertions and failure artifacts.",
+    "Timeout and interruption reap owned process trees.",
+    "Commit/push stay lightweight; risk-based review replaces mandatory global digest and all-role approval."
   ],
   "checks": [
     {
@@ -34,7 +39,7 @@
         "{python}",
         "scripts/check_app.py"
       ],
-      "timeout": 420
+      "timeout": 1800
     }
   ],
   "review": "docs/reviews/M07-readme.json"

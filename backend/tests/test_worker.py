@@ -469,6 +469,40 @@ def test_parent_pipe_close_exits_worker(tmp_path: Path) -> None:
             process.wait(timeout=5)
 
 
+def test_sigterm_exits_worker_with_parent_pipe_still_open(tmp_path: Path) -> None:
+    ready_project(tmp_path)
+    process = subprocess.Popen(
+        [sys.executable, "-m", "backend.app.worker", "--data-dir", str(tmp_path), "--watch-parent"],
+        cwd=Path(__file__).parents[2],
+        stdin=subprocess.PIPE,
+        stdout=subprocess.DEVNULL,
+        stderr=subprocess.PIPE,
+    )
+    try:
+        deadline = time.monotonic() + 10
+        while True:
+            with connect(tmp_path / "projects.sqlite3") as connection:
+                row = connection.execute("SELECT state FROM generation_worker_health").fetchone()
+            if row is not None and row["state"] == "idle":
+                break
+            assert process.poll() is None
+            assert time.monotonic() < deadline
+            time.sleep(0.02)
+        assert process.stdin is not None and not process.stdin.closed
+        process.terminate()
+        assert process.wait(timeout=5) == 0
+        assert process.stderr is not None
+        assert b"Fatal Python error" not in process.stderr.read()
+    finally:
+        if process.stdin is not None:
+            process.stdin.close()
+        if process.poll() is None:
+            process.kill()
+            process.wait(timeout=5)
+        if process.stderr is not None:
+            process.stderr.close()
+
+
 def test_real_api_worker_restart_keeps_result(tmp_path: Path) -> None:
     _, project, payload = ready_project(tmp_path)
     with server(tmp_path) as url:

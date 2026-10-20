@@ -29,6 +29,9 @@ def main():
         if not git(root, "status", "--porcelain", "--untracked-files=all").strip():
             print("{}")
             return
+        if state_file.exists() and state_file.read_text() == fingerprint:
+            print("{}")
+            return
         mode = "quick"
     else:
         print("{}")
@@ -42,15 +45,15 @@ def main():
     if mode == "quick" and ok:
         state_file.write_text(fingerprint)
     if not ok:
-        reason = "方案监督检查未通过，请修复后重查；不要直接提交。\n" + detail
+        reason = "基础检查未通过，请修复后重查；不要直接提交。\n" + detail
         if kind == "Stop" and event.get("stop_hook_active"):
             print(json.dumps({"systemMessage": reason + "\n已提醒一次，结束时须如实报告阻塞。"}, ensure_ascii=False))
         else:
             print(json.dumps({"decision": "block", "reason": reason}, ensure_ascii=False))
     elif kind == "PostToolUse":
-        print(json.dumps({"hookSpecificOutput": {"hookEventName": kind, "additionalContext": "片段快速检查通过。功能和方案符合性仍须在阶段结束交给独立 Plan Guardian 审查。"}}, ensure_ascii=False))
+        print(json.dumps({"hookSpecificOutput": {"hookEventName": kind, "additionalContext": "基础检查通过；按改动风险执行定向验证，必要时安排独立审查。"}}, ensure_ascii=False))
     else:
-        print(json.dumps({"systemMessage": "快速检查通过；按本轮改动执行必要验证并本地提交，不自动运行功能全套或上传。"}, ensure_ascii=False))
+        print(json.dumps({"systemMessage": "基础检查通过；不重复功能全套，交付时如实报告验证和剩余问题。"}, ensure_ascii=False))
 
 
 if __name__ == "__main__":

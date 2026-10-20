@@ -17,7 +17,12 @@ export default defineConfig({
   fullyParallel: false,
   workers: 1,
   retries: 0,
-  reporter: 'list',
+  globalTimeout: 540_000,
+  reporter: [
+    ['list'],
+    ['json', { outputFile: path.join(root, '.quality-local', 'playwright-results', runId, 'results.json') }],
+    ['html', { outputFolder: path.join(root, '.quality-local', 'playwright-report', runId), open: 'never' }],
+  ],
   use: { baseURL, trace: 'retain-on-failure', screenshot: 'only-on-failure' },
   projects: [
     { name: 'desktop', use: { browserName: 'chromium', viewport: { width: 1365, height: 1000 } } },
@@ -28,5 +33,6 @@ export default defineConfig({
     url: `${baseURL}/api/health`,
     reuseExistingServer: false,
     timeout: 20000,
+    gracefulShutdown: { signal: 'SIGTERM', timeout: 5000 },
   },
 });

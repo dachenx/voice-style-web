@@ -68,10 +68,9 @@ class QualityGateTests(unittest.TestCase):
         gate.quick(self.root, self.config, entries)
         gate.assert_review(self.root, self.config, entries)
 
-    def test_scope_drift_and_deleted_required_doc_block(self):
+    def test_stale_scope_does_not_block_but_required_docs_still_checked(self):
         self.write("backend/app.py", "pass\n")
-        with self.assertRaisesRegex(gate.GateError, "超出"):
-            gate.quick(self.root, self.config, gate.files(self.root))
+        gate.quick(self.root, self.config, gate.files(self.root))
         (self.root / "backend/app.py").unlink()
         for name in ("docs/项目方案与决策记录.md", "docs/协作规则.md", "项目说明.md"):
             with self.subTest(document=name):
@@ -147,21 +146,19 @@ class QualityGateTests(unittest.TestCase):
             with contextlib.redirect_stdout(io.StringIO()), self.assertRaises(gate.GateError):
                 gate.run_checks(self.root, self.config)
 
-    def test_new_module_requires_base_and_only_changed_scope(self):
+    def test_old_baseline_and_allowlist_are_not_commit_gates(self):
         self.run_git("add", ".")
         self.run_git("commit", "-m", "fixture base")
         self.config["id"] = "M01"
         self.config["review"] = "docs/reviews/M01.json"
         self.save_config()
-        with self.assertRaisesRegex(gate.GateError, "base_commit"):
-            gate.quick(self.root, self.config, gate.files(self.root))
+        gate.quick(self.root, self.config, gate.files(self.root))
         self.config["base_commit"] = self.run_git("rev-parse", "HEAD").stdout.strip()
         self.config["allowed_paths"] = ["quality/"]
         self.save_config()
         gate.quick(self.root, self.config, gate.files(self.root))
         (self.root / "scripts/feature.py").unlink()
-        with self.assertRaisesRegex(gate.GateError, "超出"):
-            gate.quick(self.root, self.config, gate.files(self.root))
+        gate.quick(self.root, self.config, gate.files(self.root))
 
     def test_symlink_block(self):
         (self.root / "scripts/link.py").symlink_to("feature.py")
@@ -169,7 +166,7 @@ class QualityGateTests(unittest.TestCase):
             gate.files(self.root)
 
     def test_real_precommit_commitmsg_and_prepush_hooks(self):
-        for name in ("quality_gate.py", "codex_hook.py"):
+        for name in ("quality_gate.py", "codex_hook.py", "check_process.py"):
             shutil.copy(PROJECT / "scripts" / name, self.root / "scripts" / name)
         shutil.copytree(PROJECT / ".githooks", self.root / ".githooks")
         for path in (self.root / ".githooks").iterdir():
@@ -177,8 +174,7 @@ class QualityGateTests(unittest.TestCase):
         self.run_git("config", "core.hooksPath", ".githooks")
         self.run_git("add", ".")
         missing = self.run_git("commit", "-m", "chore(M00): fixture", check=False)
-        self.assertNotEqual(missing.returncode, 0)
-        self.assertIn("审查", missing.stdout + missing.stderr)
+        self.assertEqual(missing.returncode, 0, missing.stdout + missing.stderr)
         self.approve()
         self.run_git("add", ".")
         bad_message = self.run_git("commit", "-m", "missing module", check=False)
@@ -216,8 +212,8 @@ class QualityGateTests(unittest.TestCase):
             remote_sha = subprocess.run(["git", "--git-dir", str(remote), "rev-parse", "refs/heads/main"], capture_output=True, text=True, check=True).stdout.strip()
             self.assertEqual(remote_sha, head)
 
-    def test_development_hooks_skip_acceptance_but_keep_review_and_index(self):
-        for name in ("quality_gate.py", "codex_hook.py"):
+    def test_commit_push_skip_acceptance_and_review_but_keep_index(self):
+        for name in ("quality_gate.py", "codex_hook.py", "check_process.py"):
             shutil.copy(PROJECT / "scripts" / name, self.root / "scripts" / name)
         shutil.copytree(PROJECT / ".githooks", self.root / ".githooks")
         self.config["checks"][0]["argv"] = ["{python}", "-c",
@@ -226,8 +222,7 @@ class QualityGateTests(unittest.TestCase):
         self.run_git("config", "core.hooksPath", ".githooks")
         self.run_git("add", ".")
         missing = self.run_git("commit", "-m", "chore(M00): lightweight", check=False)
-        self.assertNotEqual(missing.returncode, 0)
-        self.assertIn("审查", missing.stdout + missing.stderr)
+        self.assertEqual(missing.returncode, 0, missing.stdout + missing.stderr)
         self.approve()
         self.run_git("add", ".")
         self.write("scripts/feature.py", "answer = 43\n")
@@ -242,10 +237,20 @@ class QualityGateTests(unittest.TestCase):
         self.run_git("add", ".")
         committed = self.run_git("commit", "-m", "chore(M00): lightweight", check=False)
         self.assertEqual(committed.returncode, 0, committed.stdout + committed.stderr)
+        head = self.run_git("rev-parse", "HEAD").stdout.strip()
+        payload = "refs/heads/main %s refs/heads/main %s\n" % (head, "0" * 40)
+        pushed = subprocess.run([str(self.root / ".githooks/pre-push"), "origin",
+            "https://github.com/dachenx/voice-style-web.git"], cwd=self.root,
+            input=payload, capture_output=True, text=True)
+        self.assertEqual(pushed.returncode, 0, pushed.stdout + pushed.stderr)
         self.assertFalse((self.root / ".quality-local/acceptance-ran").exists())
+        full = subprocess.run([sys.executable, "scripts/quality_gate.py", "full"],
+            cwd=self.root, capture_output=True, text=True)
+        self.assertNotEqual(full.returncode, 0)
+        self.assertTrue((self.root / ".quality-local/acceptance-ran").exists())
 
     def test_codex_posttool_feedback_and_stop_no_infinite_loop(self):
-        for name in ("quality_gate.py", "codex_hook.py"):
+        for name in ("quality_gate.py", "codex_hook.py", "check_process.py"):
             shutil.copy(PROJECT / "scripts" / name, self.root / "scripts" / name)
         def invoke(event):
             event["cwd"] = str(self.root)

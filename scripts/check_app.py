@@ -9,6 +9,11 @@ import shutil
 import subprocess
 import sys
 
+if __package__:
+    from .check_process import run_check
+else:
+    from check_process import run_check
+
 ROOT = Path(__file__).resolve().parents[1]
 PYTHON = ROOT / ".venv" / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 RUNTIME_CONFIG = Path(".quality-local/runtime.json")
@@ -71,6 +76,8 @@ def configure_node(root):
 def main(argv=None):
     parser = argparse.ArgumentParser(description="执行项目应用验收")
     parser.add_argument("--configure-node", action="store_true", help="记录当前终端可用的 Node 路径，仅保存于本机")
+    parser.add_argument("--suite", choices=["all", "backend", "frontend", "browser"], default="all")
+    parser.add_argument("--project", choices=["desktop", "mobile"], help="隔离执行一个浏览器设备组")
     args = parser.parse_args(argv)
     if args.configure_node:
         configure_node(ROOT)
@@ -78,20 +85,28 @@ def main(argv=None):
     if not PYTHON.exists():
         raise ValueError("缺少项目 .venv，请按《项目说明.md》安装后端环境。")
     env = configured_environment(ROOT)
-    validate_node(env)
-    checks = [
+    if args.suite != "backend":
+        validate_node(env)
+    backend = [
         ([str(PYTHON), "-m", "ruff", "check", "--config", "backend/pyproject.toml", "backend"], 180),
         ([str(PYTHON), "-m", "mypy", "--config-file", "backend/pyproject.toml", "backend/app"], 180),
-        ([str(PYTHON), "-m", "pytest", "-q", "backend/tests"], 180),
+        ([str(PYTHON), "-m", "pytest", "-q", "backend/tests"], 240),
+    ]
+    frontend = [
         (["npm", "--prefix", "frontend", "run", "lint"], 180),
         (["npm", "--prefix", "frontend", "run", "typecheck"], 180),
         (["npm", "--prefix", "frontend", "run", "build"], 180),
-        # The full desktop/mobile suite has its own bounded budget; individual tests are unchanged.
-        (["npm", "--prefix", "frontend", "run", "test:e2e"], 300),
     ]
+    browser_args = ["npm", "--prefix", "frontend", "run", "test:e2e"]
+    if args.project:
+        browser_args += ["--", f"--project={args.project}"]
+    # Playwright's 540s global limit leaves 60s for its own shutdown/reporters.
+    browser = [(browser_args, 600)]
+    checks = {"all": backend + frontend + browser, "backend": backend,
+              "frontend": frontend, "browser": browser}[args.suite]
     for command, timeout in checks:
         print("RUN: " + " ".join(command[1:]), flush=True)
-        subprocess.run(command, cwd=ROOT, env=env, check=True, timeout=timeout)
+        run_check(command, cwd=ROOT, env=env, check=True, timeout=timeout)
 
 
 if __name__ == "__main__":
