@@ -2,7 +2,7 @@
   "module": "M07",
   "reviewer": "process_guardian",
   "verdict": "PASS",
-  "digest": "42b8807a15688da0f2453369890c223446ac21704c36eb8420e407f51b0f3a0c",
+  "digest": "d6a8b3595178b4c10b3eef37a3e0983639b8b10f8a9296d4dfcc53d2857581f8",
   "evidence": [
     "真实预览复现长列表首击确认区在视口外；修后原生模态位于665像素视口内，默认取消焦点，取消回原按钮，未确认删除真实任务。",
     "typecheck/lint/build与quick通过；首轮14通过2失败保留，修后桌面/手机16项专项通过12.0秒。",
@@ -20,6 +20,20 @@
   "limitations": [
     "本批仅删除交互修复；不是全项目验收或声音验收。",
     "真实预览仅首层点击与取消，实际删除验证在隔离人工测试数据中完成。",
-    "仅本地提交，不上传。"
-  ]
+    "D052 authorizes this release; private assets and models remain local. Release checks are recorded separately from historical functional evidence."
+  ],
+  "release_review": {
+    "reviewer": "process_guardian",
+    "verdict": "PASS",
+    "decision": "D052",
+    "evidence": [
+      "Reviewed documentation-only release changes; quick and diff checks passed.",
+      "Verified 24 outgoing commits and fast-forward ancestry from origin/main 42c7a02.",
+      "Scanned 264 outgoing blob versions; no checked private asset, binary, credential or private absolute-path patterns found."
+    ],
+    "limitations": [
+      "Pattern scanning is not an exhaustive guarantee.",
+      "Existing functional reviews are reused; push and CI results must be verified separately."
+    ]
+  }
 }
