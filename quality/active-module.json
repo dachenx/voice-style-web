@@ -1,22 +1,18 @@
 {
   "id": "M07",
-  "title": "M07 任务删除确认可见性修复",
-  "base_commit": "a4e0d6df6446898f8c670acf77e9dee12531dd6e",
+  "title": "M07 README overview and single main branch",
+  "base_commit": "9b27508d10f43451303c84f24d89dfcf925afc1e",
   "allowed_paths": [
     "quality/active-module.json",
-    "frontend/src/TaskPanel.tsx",
-    "frontend/src/TaskDeleteDialog.tsx",
-    "frontend/src/styles.css",
-    "frontend/e2e/task-deletion.spec.ts",
-    "docs/reviews/M07-task-delete-dialog.json",
+    "README.md",
+    "docs/reviews/M07-readme.json",
     "docs/项目方案与决策记录.md",
-    "docs/快速使用指南.md",
     "docs/优化与问题修复记录.md"
   ],
   "acceptance": [
-    "长列表首击确认位于视口，取消默认焦点、Escape及焦点回退正常；执行与错误反馈在弹窗",
-    "终态任务二次确认删除正文及生成文件；选用和导出引用阻止删除",
-    "持久清理、旧请求不复活、并发互斥与恢复；不影响其他资产"
+    "README describes implemented features, installation, model requirements and limits accurately.",
+    "Local documentation links resolve; only documentation and scope records change.",
+    "Remove only branches whose tips are ancestors of main; preserve main and commit history."
   ],
   "checks": [
     {
@@ -41,5 +37,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-task-delete-dialog.json"
+  "review": "docs/reviews/M07-readme.json"
 }
