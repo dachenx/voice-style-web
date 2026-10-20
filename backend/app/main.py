@@ -18,6 +18,7 @@ from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel, ConfigDict, StrictBool, field_validator
 from starlette.exceptions import HTTPException
 
+from .asset_deletion import asset_router, resume_assets
 from .audio import AudioError
 from .directory_lock import DirectoryLock
 from .exports import cleanup_exports, export_router
@@ -105,6 +106,7 @@ def create_app(
                         raise OSError("unsafe data directory link")
                 resume_deletions(database, directory)
                 cleanup_uncommitted(directory, database)
+                resume_assets(database, directory)
                 cleanup_exports(directory, database)
                 application.state.storage_ready = True
                 worker.start()
@@ -331,6 +333,7 @@ def create_app(
         require_storage()
         return delete_project(database, directory, str(project_id), payload)
 
+    application.include_router(asset_router(database, directory, require_storage))
     application.include_router(
         export_router(database, directory, require_storage, generation_registry)
     )

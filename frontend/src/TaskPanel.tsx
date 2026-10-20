@@ -19,7 +19,7 @@ function restoreDeletion(projectId: string): Deletion | null {
   } catch { return null; }
 }
 const labels: Record<Task['state'], string> = { queued: '排队中', running: '运行中', succeeded: '已完成', failed: '失败', canceled: '已取消' };
-const phases: Record<string, string> = { queued: '等待工作进程', validating: '检查固定输入', generating: '制作合成测试音', finalizing: '验证并保存文件', succeeded: '结果已保存', failed: '处理失败', canceled: '排队已取消' };
+const phases: Record<string, string> = { queued: '等待工作进程', validating: '检查固定输入', generating: '制作合成测试音', finalizing: '验证并保存文件', succeeded: '结果已保存', failed: '处理失败', canceled: '任务已取消', cancel_requested: '正在停止并清理生成文件', cleanup_failed: '进程回收未确认，队列已停止，请检查后重启服务' };
 const pendingKey = (projectId: string) => `voice-task-pending:${projectId}`;
 function restore(projectId: string): Pending | null {
   try {
@@ -252,9 +252,9 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
     try {
       const value = await request<TaskDetail>(`${base}/${task.id}/cancel`, { method: 'POST', signal: abort.signal });
       if (abort.signal.aborted) return;
-      listOperation.current += 1; setTasks((old) => merge(old, [value]).filter(item => !removedIds.current.has(item.id))); setNotice('排队任务已取消。');
+      listOperation.current += 1; setTasks((old) => merge(old, [value]).filter(item => !removedIds.current.has(item.id))); setNotice(value.state === 'canceled' ? '任务已取消。' : '已请求停止，正在回收推理进程和临时音频。');
     } catch (cause) {
-      if (!abort.signal.aborted) setActionError(`${messageOf(cause)} 请刷新核对任务状态；已运行的任务不能取消。`);
+      if (!abort.signal.aborted) setActionError(`${messageOf(cause)} 请刷新核对任务状态；停止请求可重试。`);
     } finally {
       busyRef.current = false;
       if (!abort.signal.aborted) { setBusy(false); setPollTick((tick) => tick + 1); }
@@ -372,7 +372,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
       blocked={preparing ? '正在准备本次生成。' : blocked || (pending ? '请先核对上次提交结果。' : busy ? '请等待任务操作完成。' : '')}
       onGenerate={(id) => submit('preview', id)} onChanged={onChanged} />
     <div className="subsection-title"><h3 ref={historyHeading} tabIndex={-1}>任务记录</h3><button className="text-button" onClick={() => setPollTick((tick) => tick + 1)}>刷新任务</button></div>
-    <p className="audio-hint">删除会同时清除该任务的整篇、分段音频及候选版本，不能恢复。已选用或被导出引用时不能删除；排队请先取消，运行请等待完成。</p>
+    <p className="audio-hint">删除会同时清除该任务的整篇、分段音频及候选版本，不能恢复。已选用或被导出引用时不能删除；排队请先取消，运行请先停止并等待清理完成。</p>
     {unknownDeletion && <div role="status" aria-label="任务删除待核对"><p>任务 {unknownDeletion.task_id} 的删除结果待核对。</p>
       <button disabled={busy || preparing} onClick={() => void removeTask(unknownDeletion)}>核对并重试删除</button></div>}
     {deletions.map(item => <div key={item.task_id} role="status" aria-label="任务文件待清理">
@@ -398,7 +398,7 @@ export default function TaskPanel({ projectId, doc, dirty, textBusy, textError, 
           onClick={() => { setActionError(''); setNotice(''); setDeleteTarget({ task_id: task.id, created_at: task.created_at, completed: 0, label: `${task.mode === 'full' ? '全文' : '短段'} · ${labels[task.state]}` }); }}>删除任务及音频</button>
         {task.state === 'queued' && <button className="text-button" disabled={preparing || busy} onClick={() => void cancel(task)}>取消排队</button>}
         {task.state === 'failed' && <button className="button secondary" disabled={preparing || busy || !!pending} onClick={() => void send({ kind: 'retry', taskId: task.id, input: { request_id: crypto.randomUUID() } })}>按原输入重试</button>}</div>
-      {task.state === 'running' && <p className="audio-hint">正在运行的任务暂不支持取消。</p>}
+      {task.state === 'running' && <button className="text-button" disabled={preparing || busy || task.phase === 'cancel_requested' || task.phase === 'cleanup_failed'} onClick={() => void cancel(task)}>{task.phase === 'cancel_requested' ? '正在停止…' : '停止生成'}</button>}
       {task.state === 'succeeded' && task.result && <div className="task-result"><p>{task.is_simulated ? '模拟测试音' : '真实模型生成'} · {(task.result.duration_ms / 1000).toFixed(2)} 秒 · {task.is_simulated ? '不代表真实配音效果' : '内容、武汉话与音色待试听核对'}</p>
         <ResultAudio url={`/api${base}/${task.id}/audio`} simulated={task.is_simulated} /><a className="text-button" href={`/api${base}/${task.id}/download`} download>{task.is_simulated ? '下载模拟音频' : '下载生成语音'}</a></div>}
     </article></details>)}</div>

@@ -480,3 +480,23 @@ test('生成引导区分项目在途、工作进程错误和取消历史', async
   await expect(next).toContainText('失败或取消原因');
   await expect(next).not.toContainText('本项目有');
 });
+
+test('运行任务停止显示处理中，直到后端确认取消', async ({ page }) => {
+  const value = await seed(page, '运行任务停止');
+  const task = { id: randomUUID(), project_id: value.id, mode: 'full', state: 'running', state_version: 1,
+    is_simulated: true, retry_of: null, completed_paragraphs: 0, total_paragraphs: 2,
+    created_at: new Date().toISOString(), phase: 'generating', error: null, result: null,
+    adapter: { id: 'simulated-tone', version: '1' } };
+  await page.route(`**/api/projects/${value.id}/tasks`, route => route.fulfill({ json: { tasks: [task], worker: { state: 'running', error: null } } }));
+  await page.route(`**/api/projects/${value.id}/tasks/${task.id}/cancel`, route => {
+    task.phase = 'cancel_requested'; task.state_version++;
+    return route.fulfill({ json: task });
+  });
+  await open(page, value);
+  await card(page, task.id).getByRole('button', { name: '停止生成', exact: true }).click();
+  await expect(card(page, task.id).getByRole('button', { name: '正在停止…', exact: true })).toBeDisabled();
+  await expect(card(page, task.id)).toContainText('正在停止并清理');
+  task.state = 'canceled'; task.phase = 'canceled'; task.state_version++;
+  await panel(page).getByRole('button', { name: '刷新任务', exact: true }).click();
+  await expect(card(page, task.id)).toContainText('已取消');
+});

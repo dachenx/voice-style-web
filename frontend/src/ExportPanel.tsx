@@ -1,4 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
+import AssetCleanupPanel from './AssetCleanupPanel';
+import AssetDeleteButton from './AssetDeleteButton';
 import { ApiError, messageOf, request } from './api';
 import { exportOperation, updateExport, useExportOperation } from './operationCache';
 import type { VersionCatalogue } from './VersionPanel';
@@ -83,7 +85,7 @@ export default function ExportPanel({ projectId, catalog, disabled, onSelectAudi
       historyGeneration.current += 1;
       setRecords(old => [result, ...old.filter(item => item.id !== result.id)]);
     } catch (cause) {
-      const rejected = cause instanceof ApiError && ['invalid_input', 'export_inputs_changed', 'export_unconfirmed', 'export_empty', 'export_missing', 'export_acknowledgement', 'export_too_long', 'export_source_changed'].includes(cause.code);
+      const rejected = cause instanceof ApiError && ['invalid_input', 'export_inputs_changed', 'export_unconfirmed', 'export_empty', 'export_missing', 'export_acknowledgement', 'export_too_long', 'export_source_changed', 'export_deleted'].includes(cause.code);
       updateExport(projectId, {
         ...(rejected ? { pending: null } : {}),
         error: rejected ? `导出未创建：${messageOf(cause)} 请修正后重新导出。`
@@ -118,6 +120,7 @@ export default function ExportPanel({ projectId, catalog, disabled, onSelectAudi
     {operationError && <p role="alert" className="error-box">{operationError}</p>}
     {error && <p role="alert" className="error-box">{error}</p>}
     <p role="status" aria-label="导出操作状态">{notice}</p>
+    <AssetCleanupPanel projectId={projectId} exportsOnly onChanged={() => setRefresh(v => v + 1)} />
     <h4>已保存导出</h4>
     {!records.length && <p>尚无已保存导出。</p>}
     {records.map(r => <article className="version-card" key={r.id}>
@@ -126,6 +129,9 @@ export default function ExportPanel({ projectId, catalog, disabled, onSelectAudi
       <p className="audio-hint">固定导出快照，后续改稿和换选用不会修改此文件。</p>
       {r.available ? <div><audio controls preload="none" aria-label="试听拼接结果" src={`/api${base}/${r.id}/audio`} /><div className="task-actions"><a className="text-button" href={`/api${base}/${r.id}/audio`} download>下载 WAV</a>
         <a className="text-button" href={`/api${base}/${r.id}/manifest`} download>下载来源记录 JSON</a></div></div> : <p role="alert">导出文件不可用，历史记录保留，请核对本地文件。</p>}
+      <AssetDeleteButton title="删除这份导出" path={`${base}/${r.id}`} disabled={busy || !!pending}
+        description="永久删除这份拼接音频和来源记录，解除它对任务音频的引用。保留原任务音频、段落选用和其他导出。已下载到电脑的副本不受影响。"
+        onDeleted={() => { historyGeneration.current += 1; setRecords(old => old.filter(item => item.id !== r.id)); setRefresh(v => v + 1); }} />
     </article>)}
   </section>;
 }

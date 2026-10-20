@@ -271,3 +271,21 @@ test('摘要失败保持原请求，迟到摘要不能覆盖其间的重试结�
   await expect(panel(page).getByRole('status')).toContainText('已从导出历史核实保存');
   expect(posts).toBe(2);
 });
+
+test('导出二次确认删除，取消保留，删除后旧请求不可复活', async ({ page }) => {
+  const id = await ready(page);
+  await panel(page).getByRole('button', { name: '导出整篇 WAV', exact: true }).click();
+  await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveCount(1);
+  const old = await (await page.request.get(`/api/projects/${id}/exports`)).json();
+  await page.getByRole('button', { name: '删除这份导出', exact: true }).click();
+  const dialog = page.getByRole('dialog', { name: '确认删除这份导出' });
+  await expect(dialog).toBeInViewport();
+  await dialog.getByRole('button', { name: '取消删除', exact: true }).click();
+  await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveCount(1);
+  await page.getByRole('button', { name: '删除这份导出', exact: true }).click();
+  await dialog.getByRole('button', { name: '确认永久删除', exact: true }).click();
+  await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveCount(0);
+  expect((await page.request.get(`/api/projects/${id}/exports/${old[0].id}/audio`)).status()).toBe(410);
+  await page.reload();
+  await expect(panel(page).getByRole('link', { name: '下载 WAV', exact: true })).toHaveCount(0);
+});

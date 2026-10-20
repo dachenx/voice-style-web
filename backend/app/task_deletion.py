@@ -69,7 +69,7 @@ def check_exports(directory: Path, project: str, task_id: str, version_ids: set[
                     409,
                     "task_exported",
                     f"该任务音频已被导出 {manifest['id']} 引用，不能删除。"
-                    "当前不支持单独删除导出，不能强制解除引用。",
+                    "请先在导出历史中删除相关导出，再重试。",
                 )
     except TaskError:
         raise

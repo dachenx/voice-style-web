@@ -111,10 +111,19 @@ def export_router(
         project = str(project_id)
         with connect(database) as connection:
             require_project(connection, project)
+            deleted = {
+                row[0]
+                for row in connection.execute(
+                    "SELECT asset_id FROM asset_deletions WHERE project_id=? AND kind='export'",
+                    (project,),
+                )
+            }
         root = export_root(directory, project)
         result = []
         if root.exists():
             for folder in sorted(root.iterdir()):
+                if folder.name in deleted:
+                    continue
                 try:
                     UUID(folder.name)
                 except ValueError:
@@ -139,6 +148,12 @@ def export_router(
         try:
             with connect(database) as connection:
                 require_project(connection, project)
+                if connection.execute(
+                    "SELECT 1 FROM asset_deletions WHERE project_id=? "
+                    "AND kind='export' AND asset_id=?",
+                    (project, identifier),
+                ).fetchone():
+                    raise TaskError(410, "export_deleted", "该导出已删除，请发起新的导出请求。")
             if final.exists():
                 old = read_export(final, project)
                 if old["request_sha256"] != fingerprint:
@@ -267,6 +282,11 @@ def export_router(
         project = str(project_id)
         with connect(database) as connection:
             require_project(connection, project)
+            if connection.execute(
+                "SELECT 1 FROM asset_deletions WHERE project_id=? AND kind='export' AND asset_id=?",
+                (project, str(export_id)),
+            ).fetchone():
+                raise TaskError(410, "export_deleted", "该导出已永久删除。")
         folder = export_root(directory, project) / str(export_id)
         try:
             manifest = read_export(folder, project)

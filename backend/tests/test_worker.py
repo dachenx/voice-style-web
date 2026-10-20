@@ -366,7 +366,7 @@ def test_cancel_and_claim_real_transaction_race(tmp_path: Path) -> None:
         if claimed is None:
             assert canceled.status_code == 200
             assert final["state"] == "canceled"
-            # Also prove running cancellation rejects, independent of which contender won.
+            # Also prove running cancellation persists a stop request.
             payload["request_id"] = str(uuid4())
             running, _ = enqueue(
                 database, tmp_path, project, TaskInput(**payload), GenerationRegistry()
@@ -374,9 +374,10 @@ def test_cancel_and_claim_real_transaction_race(tmp_path: Path) -> None:
             claimed = worker.claim()
             assert claimed is not None and claimed["id"] == running["id"]
         else:
-            assert canceled.status_code == 409
+            assert canceled.status_code == 200
             assert final["state"] == "running"
-        assert client.post(f"{base}/{claimed['id']}/cancel").status_code == 409
+            assert final["phase"] == "cancel_requested"
+        assert client.post(f"{base}/{claimed['id']}/cancel").status_code == 200
         assert task_state(database, project, claimed["id"])["state"] == "running"
 
 
@@ -526,3 +527,50 @@ def test_real_api_worker_restart_keeps_result(tmp_path: Path) -> None:
     # Service shutdown releases both locks; no worker is left owning this directory.
     with WorkerSession(tmp_path):
         pass
+
+
+@pytest.mark.parametrize("moment", ["progress", "publish"])
+def test_running_cancel_cleans_before_terminal_and_queue_continues(tmp_path, moment):
+    database, project, payload = ready_project(tmp_path)
+    registry = GenerationRegistry()
+    task, _ = enqueue(database, tmp_path, project, TaskInput(**payload), registry)
+    payload["request_id"] = str(uuid4())
+    next_task, _ = enqueue(database, tmp_path, project, TaskInput(**payload), registry)
+    base = f"/api/projects/{project}/tasks/{task['id']}"
+    with (
+        TestClient(create_app(tmp_path, worker_enabled=False)) as client,
+        WorkerSession(tmp_path, registry) as worker,
+    ):
+        original = registry.adapters["simulated-tone"].generate
+
+        def generate(snapshot, destination, progress):
+            original(snapshot, destination, progress)
+            response = client.post(base + "/cancel")
+            assert response.status_code == 200
+            assert response.json()["state"] == "running"
+            assert response.json()["phase"] == "cancel_requested"
+            assert client.request("DELETE", base, json={"acknowledged": True}).status_code == 409
+            if moment == "progress":
+                progress(1)
+
+        with patch.object(registry.adapters["simulated-tone"], "generate", side_effect=generate):
+            assert worker.run_once()
+        stopped = client.get(base).json()
+        assert stopped["state"] == "canceled" and stopped["result"] is None
+        assert not (tmp_path / "generation-results" / task["id"]).exists()
+        assert not (tmp_path / "generation-tmp" / task["id"]).exists()
+        assert worker.run_once()
+        assert task_state(database, project, next_task["id"])["state"] == "succeeded"
+
+
+def test_restart_finishes_persisted_stop_request(tmp_path):
+    database, project, payload = ready_project(tmp_path)
+    task, _ = enqueue(database, tmp_path, project, TaskInput(**payload), GenerationRegistry())
+    with WorkerSession(tmp_path) as worker:
+        assert worker.claim()
+        with connect(database) as connection:
+            connection.execute(
+                "UPDATE generation_tasks SET phase='cancel_requested' WHERE id=?", (task["id"],)
+            )
+    with WorkerSession(tmp_path):
+        assert task_state(database, project, task["id"])["state"] == "canceled"

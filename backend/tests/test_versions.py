@@ -271,6 +271,7 @@ def test_m05_upgrade_preserves_literal_task_and_adds_empty_selection_table(tmp_p
         connection.execute("DROP TABLE project_create_requests")
         connection.execute("DROP TABLE abandoned_project_requests")
         connection.execute("DROP TABLE task_deletions")
+        connection.execute("DROP TABLE asset_deletions")
         connection.execute("DELETE FROM schema_migrations WHERE version>=6")
     migrate(database)
     migrate(database)
@@ -278,5 +279,5 @@ def test_m05_upgrade_preserves_literal_task_and_adds_empty_selection_table(tmp_p
         assert before == [
             tuple(row) for row in connection.execute("SELECT * FROM generation_tasks")
         ]
-        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 10
+        assert connection.execute("SELECT COUNT(*) FROM schema_migrations").fetchone()[0] == 11
         assert not connection.execute("SELECT * FROM paragraph_audio_selections").fetchall()

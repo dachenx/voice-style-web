@@ -53,7 +53,9 @@ class ProjectOperations:
             return
         project_delete = scope["method"] == "DELETE" and len(parts) == 3
         removing = project_delete or (
-            scope["method"] == "DELETE" and len(parts) == 5 and parts[3] == "tasks"
+            scope["method"] == "DELETE"
+            and len(parts) >= 5
+            and parts[3] in {"tasks", "references", "exports"}
         )
         if project in self.removing or (removing and self.active.get(project, 0)):
             response = JSONResponse(
@@ -131,6 +133,7 @@ def cleanup_project(database: Path, directory: Path, project: str) -> None:
         elif path.exists():
             shutil.rmtree(path)
     with connect(database) as connection:
+        connection.execute("DELETE FROM asset_deletions WHERE project_id=?", (project,))
         connection.execute(
             "UPDATE project_deletions SET completed=1,paths_json='[]' WHERE project_id=?",
             (project,),
@@ -201,7 +204,9 @@ def _delete_project(
                 (project,),
             ).fetchone():
                 raise TextError(
-                    409, "project_tasks_active", "项目有排队或运行任务，请取消排队或等待运行完成"
+                    409,
+                    "project_tasks_active",
+                    "项目有排队或运行任务，请取消排队或停止运行任务并等待清理完成",
                 )
             references = [
                 str(UUID(r[0]))
@@ -209,6 +214,16 @@ def _delete_project(
                     "SELECT id FROM audio_references WHERE project_id=?", (project,)
                 )
             ]
+            references += [
+                str(UUID(r[0]))
+                for r in connection.execute(
+                    "SELECT CASE WHEN kind='reference' THEN asset_id ELSE reference_id END "
+                    "FROM asset_deletions WHERE project_id=? AND completed=0 "
+                    "AND kind IN ('reference','clip')",
+                    (project,),
+                )
+            ]
+            references = sorted(set(references))
             tasks = [
                 str(UUID(r[0]))
                 for r in connection.execute(

@@ -3,6 +3,7 @@ import { messageOf, request } from './api';
 import { pendingDrafts } from './textDraftCache';
 import TaskPanel from './TaskPanel';
 import TextImport from './TextImport';
+import TextSplit from './TextSplit';
 import { advancedPreference, saveAdvanced } from './uiPreferences';
 
 export type Paragraph = { id: string; original_text: string; draft_text: string; pronunciation_note: string };
@@ -186,6 +187,7 @@ export default function TextPanel({ projectId, onChanged, referenceRefresh }: { 
           if (selected?.draft_text && selected.draft_text !== text && !window.confirm('这会替换当前段已有的朗读文案，其他段和原稿保留。是否继续？')) return '已取消替换，原文案保留。';
           edit(() => updated); setNotice('已导入当前段，尚未保存；请核对后生成。'); return null;
         }} />
+      <TextSplit paragraphs={doc.paragraphs} disabled={busy} onApply={paragraphs => { setUndo(null); edit(d => ({ ...d, paragraphs })); }} />
       {doc.paragraphs.length > 1 && <label>编辑哪一段<select disabled={busy} value={(doc.paragraphs.find(p => p.id === editingId) ?? doc.paragraphs[0]).id} onChange={e => setEditingId(e.target.value)}>
         {doc.paragraphs.map((p, i) => <option key={p.id} value={p.id}>第 {i + 1} 段 · {p.draft_text.slice(0, 24)}</option>)}
       </select><span>已保留原有 {doc.paragraphs.length} 段及顺序。</span></label>}

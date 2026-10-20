@@ -146,6 +146,12 @@ class WorkerSession:
             connection.execute("BEGIN IMMEDIATE")
             now = timestamp()
             connection.execute(
+                "UPDATE generation_tasks SET state='canceled',phase='canceled',"
+                "updated_at=?,finished_at=?,state_version=state_version+1 "
+                "WHERE state='running' AND phase='cancel_requested'",
+                (now, now),
+            )
+            connection.execute(
                 "UPDATE generation_tasks SET state='failed',phase='failed',"
                 "error_code='worker_interrupted',error_message='上次运行中断，请显式重试；原输入已保留',"
                 "updated_at=?,finished_at=?,state_version=state_version+1 WHERE state='running'",
@@ -177,6 +183,13 @@ class WorkerSession:
             assert claimed is not None
             return task_from_row(claimed)
 
+    def cancellation_requested(self, task_id: str) -> bool:
+        with connect(self.database) as connection:
+            row = connection.execute(
+                "SELECT phase FROM generation_tasks WHERE id=?", (task_id,)
+            ).fetchone()
+            return row is not None and row[0] == "cancel_requested"
+
     def progress(self, task_id: str, completed: int) -> None:
         if self.stop.is_set():
             raise TaskError(503, "worker_interrupted", "工作进程停止，任务中断，请显式重试")
@@ -187,6 +200,8 @@ class WorkerSession:
             ).fetchone()
             if row is None or row["state"] != "running":
                 raise TaskError(409, "task_state_changed", "任务运行状态已改变")
+            if row["phase"] == "cancel_requested":
+                raise TaskError(409, "task_canceled", "用户停止了任务")
             if (
                 type(completed) is not int
                 or completed < row["completed_paragraphs"]
@@ -202,10 +217,19 @@ class WorkerSession:
     def fail(self, task_id: str, code: str, message: str) -> None:
         with connect(self.database) as connection:
             now = timestamp()
+            if code == "model_cleanup_failed":
+                connection.execute(
+                    "UPDATE generation_tasks SET phase='cleanup_failed',error_code=?,"
+                    "error_message=?,updated_at=?,state_version=state_version+1 "
+                    "WHERE id=? AND state='running'",
+                    (code, message, now, task_id),
+                )
+                return
             connection.execute(
                 "UPDATE generation_tasks SET state='failed',phase='failed',"
                 "error_code=?,error_message=?,updated_at=?,finished_at=?,"
-                "state_version=state_version+1 WHERE id=? AND state='running'",
+                "state_version=state_version+1 WHERE id=? AND state='running' "
+                "AND phase!='cancel_requested'",
                 (code, message, now, now, task_id),
             )
 
@@ -254,7 +278,7 @@ class WorkerSession:
                     path,
                     self.lock.file.fileno(),
                     task_id,
-                    self.stop.is_set,
+                    lambda: self.stop.is_set() or self.cancellation_requested(task_id),
                     self.directory / "model-health",
                 )
             adapter.generate(
@@ -270,7 +294,8 @@ class WorkerSession:
                     raise TaskError(502, "adapter_invalid_output", "模拟适配器未完成全部段落")
                 connection.execute(
                     "UPDATE generation_tasks SET phase='finalizing',updated_at=?,"
-                    "state_version=state_version+1 WHERE id=? AND state='running'",
+                    "state_version=state_version+1 WHERE id=? AND state='running' "
+                    "AND phase!='cancel_requested'",
                     (timestamp(), task_id),
                 )
             result = self.inspect_result(destination, snapshot, started, task_id)
@@ -288,7 +313,7 @@ class WorkerSession:
                 changed = connection.execute(
                     "UPDATE generation_tasks SET state='succeeded',phase='succeeded',"
                     "result_json=?,updated_at=?,finished_at=?,state_version=state_version+1 "
-                    "WHERE id=? AND state='running'",
+                    "WHERE id=? AND state='running' AND phase!='cancel_requested'",
                     (canonical(result), now, now, task_id),
                 )
                 if changed.rowcount != 1:
@@ -309,12 +334,24 @@ class WorkerSession:
                 code, message = "generation_failed", "生成失败，原输入已保留，请重试"
             failure = (code, message)
         finally:
-            if stage.exists():
+            cleanup_failed = failure is not None and failure[0] == "model_cleanup_failed"
+            if stage.exists() and not cleanup_failed:
                 shutil.rmtree(stage)
-            if not published and target.exists():
+            if not published and target.exists() and not cleanup_failed:
                 shutil.rmtree(target)
             if failure is not None:
                 self.fail(task_id, *failure)
+            # Publish cancellation only after model exit and filesystem cleanup. Until then
+            # the task remains running, protecting deletion and the single-worker queue.
+            with connect(self.database) as connection:
+                now = timestamp()
+                connection.execute(
+                    "UPDATE generation_tasks SET state='canceled',phase='canceled',"
+                    "result_json=NULL,error_code=NULL,error_message=NULL,updated_at=?,"
+                    "finished_at=?,state_version=state_version+1 "
+                    "WHERE id=? AND phase='cancel_requested' AND ? != 'model_cleanup_failed'",
+                    (now, now, task_id, failure[0] if failure else ""),
+                )
             self.state = "idle"
             self.heartbeat()
         return True

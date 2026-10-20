@@ -1,5 +1,7 @@
 import { useCallback, useEffect, useRef, useState, type FormEvent } from 'react';
 import { AudioLines, Check, CircleAlert, Download, LoaderCircle, RefreshCw, Scissors, Upload } from 'lucide-react';
+import AssetCleanupPanel from './AssetCleanupPanel';
+import AssetDeleteButton from './AssetDeleteButton';
 import { messageOf, request, type Project } from './api';
 
 export type Clip = { id: string; reference_id: string; start_ms: number; end_ms: number; created_at: string };
@@ -28,15 +30,15 @@ function AudioPlayer({ url, label }: { url: string; label: string }) {
   </div>;
 }
 
-function ClipEditor({ reference, activeClipId, base, busy, saveClip, activate }: {
-  reference: ReferenceAudio; activeClipId: string | null; base: string; busy: boolean;
+function ClipEditor({ reference, activeClipId, base, busy, saveClip, activate, onDeleted }: {
+  onDeleted: () => void; reference: ReferenceAudio; activeClipId: string | null; base: string; busy: boolean;
   saveClip: (start: number, end: number) => Promise<Clip | null>; activate: (clipId: string) => Promise<void>;
 }) {
   const initial = reference.clips.find((clip) => clip.id === activeClipId);
   const [start, setStart] = useState(seconds(initial?.start_ms ?? 0));
   const [end, setEnd] = useState(seconds(initial?.end_ms ?? reference.duration_ms));
   const [listeningId, setListeningId] = useState(initial?.id ?? reference.clips[0]?.id ?? '');
-  const listening = reference.clips.find((clip) => clip.id === listeningId);
+  const listening = reference.clips.find((clip) => clip.id === listeningId) ?? reference.clips[0];
   const startMs = toMilliseconds(start);
   const endMs = toMilliseconds(end);
   const validation = startMs === null || endMs === null ? '请输入秒数，最多保留三位小数。' :
@@ -54,6 +56,8 @@ function ClipEditor({ reference, activeClipId, base, busy, saveClip, activate }:
     <div className="reference-title"><div><span className="eyebrow">ORIGINAL REFERENCE</span><h3>{reference.filename}</h3>
       <p>{seconds(reference.duration_ms)} 秒 · {sizeOf(reference.byte_size)} · 原件已保留</p></div>
       <a className="text-button" href={`${base}/original`} download><Download size={15} />下载原件</a></div>
+    <AssetDeleteButton title="删除参考素材" path={base.replace(/^\/api/, '')} disabled={busy} onDeleted={onDeleted}
+      description="永久删除应用内这份录音副本、全部片段和片段原话；若是当前参考会取消选择。被任务引用时阻止删除，不动电脑原始文件或人物模型。" />
     <label className="audio-label">完整试听</label>
     <AudioPlayer key={reference.id} url={`${base}/preview`} label="完整参考音频" />
     <p className="audio-hint">试听使用兼容副本，原始文件内容保持不变。</p>
@@ -76,7 +80,7 @@ function ClipEditor({ reference, activeClipId, base, busy, saveClip, activate }:
       <div className="subsection-title"><AudioLines size={17} /><h4>已保存片段</h4><span className="count">{reference.clips.length}</span></div>
       {reference.clips.length === 0 ? <p className="audio-hint">保存第一个片段后，可以在这里试听和切换。</p> : <>
         <label htmlFor="saved-clip" className="audio-label">选择试听片段</label>
-        <select id="saved-clip" value={listeningId} disabled={busy} onChange={(event) => setListeningId(event.target.value)}>
+        <select id="saved-clip" value={listening?.id ?? ''} disabled={busy} onChange={(event) => setListeningId(event.target.value)}>
           <option value="" disabled>选择一个已保存片段</option>
           {reference.clips.map((clip, index) => <option key={clip.id} value={clip.id}>
             片段 {reference.clips.length - index} · {rangeOf(clip)}{activeClipId === clip.id ? ' · 当前参考' : ''}
@@ -88,6 +92,8 @@ function ClipEditor({ reference, activeClipId, base, busy, saveClip, activate }:
             {activeClipId === listening.id ? <><Check size={14} />当前参考片段</> : '仅试听，尚未设为当前参考'}</span>
             {activeClipId !== listening.id && <button className="button secondary" disabled={busy} onClick={() => void activate(listening.id)}>设为当前参考</button>}
             <a className="text-button" href={`${base}/clips/${listening.id}/audio`} download={`reference-${listening.id}.wav`}><Download size={14} />下载片段</a>
+            <AssetDeleteButton title="删除这个片段" path={`${base.replace(/^\/api/, '')}/clips/${listening.id}`} disabled={busy} onDeleted={onDeleted}
+              description="永久删除这个参考片段及其原话；若是当前参考会取消选择。保留完整录音和其他片段，被任务引用时阻止删除。" />
           </div>
         </div>}
       </>}
@@ -166,6 +172,7 @@ export default function ReferencePanel({ project, onChanged }: { project: Projec
     <div className="reference-heading"><div><span className="eyebrow">01 / REFERENCE AUDIO</span><h2>参考声音<span className="heading-dot">.</span></h2>
       <p>为「{project.name}」挑选一段声音，保留原件，随时重新选取。</p></div>
       <button className="text-button" disabled={loading || !!busy} onClick={reload}><RefreshCw size={14} />刷新素材</button></div>
+    <AssetCleanupPanel projectId={project.id} onChanged={() => { reload(); onChanged(); }} />
     <p className="muted">多个窗口时以最后成功选择为准，请刷新素材核对。</p>
     <form className="upload-form" onSubmit={upload}>
       <div className="upload-symbol"><Upload size={22} /></div>
@@ -189,7 +196,7 @@ export default function ReferencePanel({ project, onChanged }: { project: Projec
             </button>)}
           </nav>
             {selected && <ClipEditor key={selected.id} reference={selected} activeClipId={library.active_clip_id}
-              base={`/api${base}/references/${selected.id}`} busy={!!busy}
+              base={`/api${base}/references/${selected.id}`} busy={!!busy} onDeleted={() => { reload(); onChanged(); }}
               saveClip={(start_ms, end_ms) => mutate<Clip>(`/references/${selected.id}/clips`, {
                 method: 'POST', body: JSON.stringify({ start_ms, end_ms }),
               }, '正在保存参考片段…', (clip) => {

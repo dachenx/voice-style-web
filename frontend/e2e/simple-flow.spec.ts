@@ -208,3 +208,44 @@ test('任务响应丢失不重复提交，恢复沿用同一输入', async ({ pa
   expect(bodies).toHaveLength(2); expect(bodies[0]).toBe(bodies[1]);
   expect((await (await page.request.get(`/api/projects/${id}/tasks`)).json()).tasks).toHaveLength(1);
 });
+
+test('长文预览不改稿，应用与撤销，空白尾部可保存生成准备', async ({ page }) => {
+  const id = await project(page);
+  await page.goto(`/#project=${id}`);
+  const text = '先到屋里了解情况。'.repeat(12) + '\n';
+  const input = page.getByLabel('要朗读的文案', { exact: true });
+  await input.fill(text);
+  await page.getByRole('button', { name: '长文自动分段（预览）' }).click();
+  await expect(input).toHaveValue(text);
+  await page.getByRole('button', { name: '应用分段', exact: true }).click();
+  await expect(input).not.toHaveValue(text);
+  await page.getByRole('button', { name: '撤销自动分段' }).click();
+  await expect(input).toHaveValue(text);
+  await page.getByRole('button', { name: '长文自动分段（预览）' }).click();
+  await input.fill(text + '改变');
+  await expect(page.getByRole('button', { name: '应用分段', exact: true })).toBeDisabled();
+  await page.getByRole('button', { name: '长文自动分段（预览）' }).click();
+  await page.getByRole('button', { name: '应用分段', exact: true }).click();
+  await page.getByRole('button', { name: '保存并确认文案与顺序', exact: true }).click();
+  const saved = await (await page.request.get(`/api/projects/${id}/text`)).json();
+  await expect.poll(async () => (await (await page.request.get(`/api/projects/${id}/text`)).json()).confirmation_current).toBe(true);
+  expect(saved.paragraphs.length).toBeGreaterThan(1);
+  expect(saved.paragraphs.every((p: { draft_text: string }) => p.draft_text.trim() && Array.from(p.draft_text).length <= 80)).toBe(true);
+});
+
+test('长原稿同步分段不翻倍，空白朗读稿不隐式删除原稿', async ({ page }) => {
+  const id = await project(page);
+  const paragraphs = Array.from({ length: 4 }, () => ({ id: randomUUID(), original_text: '内容。'.repeat(1000), draft_text: '内容。'.repeat(1000), pronunciation_note: '' }));
+  paragraphs.push({ id: randomUUID(), original_text: '保留原稿', draft_text: ' '.repeat(81), pronunciation_note: '' });
+  expect((await page.request.put(`/api/projects/${id}/text`, { data: { expected_revision: 0, source_language: 'zh-CN', target_language: 'wuhan', register: '', terms: '', paragraphs } })).ok()).toBe(true);
+  await page.goto(`/#project=${id}`);
+  await page.getByRole('button', { name: '长文自动分段（预览）' }).click();
+  await page.getByRole('button', { name: '应用分段', exact: true }).click();
+  await page.getByLabel('编辑哪一段').selectOption(paragraphs[4].id);
+  await expect(page.getByLabel('要朗读的文案', { exact: true })).toHaveValue(' '.repeat(81));
+  await page.getByLabel('要朗读的文案', { exact: true }).fill('补上朗读稿');
+  await page.getByRole('button', { name: '保存并确认文案与顺序', exact: true }).click();
+  await expect.poll(async () => (await (await page.request.get(`/api/projects/${id}/text`)).json()).confirmation_current).toBe(true);
+  const saved = await (await page.request.get(`/api/projects/${id}/text`)).json();
+  expect(saved.paragraphs.reduce((sum: number, p: { original_text: string }) => sum + Array.from(p.original_text).length, 0)).toBe(12004);
+});

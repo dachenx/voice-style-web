@@ -364,6 +364,7 @@ def test_m04_schema_snapshot_and_request_replay_upgrade(tmp_path: Path) -> None:
         connection.execute("DROP TABLE project_create_requests")
         connection.execute("DROP TABLE abandoned_project_requests")
         connection.execute("DROP TABLE task_deletions")
+        connection.execute("DROP TABLE asset_deletions")
         connection.execute("DELETE FROM schema_migrations WHERE version>=5")
         connection.execute(
             "UPDATE generation_tasks SET snapshot_json=? WHERE id=?",

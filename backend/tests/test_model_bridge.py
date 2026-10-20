@@ -16,11 +16,12 @@ from uuid import uuid4
 import pytest
 from fastapi.testclient import TestClient
 
-from backend.app.generation import GenerationRegistry, SimulatedToneAdapter, TaskError
+from backend.app.generation import GenerationRegistry, SimulatedToneAdapter, TaskError, TaskInput
 from backend.app.local_model import LocalCosyVoiceAdapter
 from backend.app.main import create_app
 from backend.app.model_config import digest_json, save_config
 from backend.app.storage import connect
+from backend.app.tasks import enqueue
 from backend.app.worker import WorkerSession
 from backend.tests.test_model_inputs import fixture_model
 from backend.tests.test_task_store import ready_project
@@ -260,6 +261,7 @@ from pathlib import Path
 from backend.app.generation import GenerationRegistry, SimulatedToneAdapter
 from backend.app.local_model import LocalCosyVoiceAdapter
 from backend.app.worker import WorkerSession
+from backend.app.tasks import enqueue
 directory, config, runner, control = map(Path, sys.argv[1:])
 adapter = LocalCosyVoiceAdapter(config,
     bridge_command=[sys.executable, str(runner), '--control', str(control)])
@@ -413,6 +415,8 @@ def test_dead_bridge_leader_descendant_is_reaped_before_next_task(tmp_path: Path
 def test_unverified_cleanup_stops_worker_and_preserves_next_queued_task(tmp_path: Path) -> None:
     client, directory, db, project, task, registry, _, _, _ = setup_real(tmp_path)
     real_stop = LocalCosyVoiceAdapter.stop_process
+    _, next_project, next_payload = ready_project(directory)
+    next_task, _ = enqueue(db, directory, next_project, TaskInput(**next_payload), registry)
 
     def verification_failure(process: Any) -> None:
         # Reap actual owned children for test hygiene, then inject inability to verify cleanup.
@@ -432,10 +436,26 @@ def test_unverified_cleanup_stops_worker_and_preserves_next_queued_task(tmp_path
                 f"/api/projects/{project}/tasks/{task['id']}/retry",
                 json={"request_id": str(uuid4())},
             )
-            assert response.status_code == 201
+            assert response.status_code == 409
+            assert failed["state"] == "running" and failed["phase"] == "cleanup_failed"
+            assert (
+                client.request(
+                    "DELETE",
+                    f"/api/projects/{project}/tasks/{task['id']}",
+                    json={"acknowledged": True},
+                ).status_code
+                == 409
+            )
             assert not worker.run_once()
-            assert task_state(db, project, response.json()["id"])["state"] == "queued"
+            assert task_state(db, next_project, next_task["id"])["state"] == "queued"
         with WorkerSession(directory, registry) as replacement:
+            assert replacement.run_once()
+            assert task_state(db, next_project, next_task["id"])["state"] == "succeeded"
+            response = client.post(
+                f"/api/projects/{project}/tasks/{task['id']}/retry",
+                json={"request_id": str(uuid4())},
+            )
+            assert response.status_code == 201
             assert replacement.run_once()
         assert_result(directory, task_state(db, project, response.json()["id"]), task)
     finally:
@@ -572,4 +592,26 @@ def test_production_bridge_multichunk_paragraph_boundaries(
         assert all(c[1] == {"stream": False, "text_frontend": False, "speed": 1.0} for c in calls)
     finally:
         os.chdir(old_cwd)
+        client.__exit__(None, None, None)
+
+
+def test_api_stop_reaps_model_before_canceled(tmp_path):
+    client, directory, db, project, task, registry, control, _, _ = setup_real(tmp_path)
+    try:
+        control.write_text("block")
+        with WorkerSession(directory, registry) as worker:
+            thread = threading.Thread(target=worker.run_once)
+            thread.start()
+            wait_file(control.with_suffix(".pid"))
+            pid = int(control.with_suffix(".pid").read_text())
+            response = client.post(f"/api/projects/{project}/tasks/{task['id']}/cancel")
+            assert response.status_code == 200
+            thread.join(timeout=10)
+            assert not thread.is_alive()
+            with pytest.raises(ProcessLookupError):
+                os.kill(pid, 0)
+            assert task_state(db, project, task["id"])["state"] == "canceled"
+            assert not worker.stop.is_set()
+            assert not (directory / "generation-tmp" / task["id"]).exists()
+    finally:
         client.__exit__(None, None, None)

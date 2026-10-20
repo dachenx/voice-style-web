@@ -390,8 +390,15 @@ def task_router(
             task = get_task(connection, str(project_id), str(task_id))
             if task["state"] == "canceled":
                 return task
+            if task["state"] == "running":
+                connection.execute(
+                    "UPDATE generation_tasks SET phase='cancel_requested',updated_at=?,"
+                    "state_version=state_version+1 WHERE id=? AND phase!='cancel_requested'",
+                    (timestamp(), str(task_id)),
+                )
+                return get_task(connection, str(project_id), str(task_id))
             if task["state"] != "queued":
-                raise TaskError(409, "task_not_cancelable", "只有排队任务可以取消")
+                raise TaskError(409, "task_not_cancelable", "任务已经结束，请刷新查看结果")
             now = timestamp()
             connection.execute(
                 "UPDATE generation_tasks SET state='canceled',phase='canceled',"

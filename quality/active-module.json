@@ -1,23 +1,19 @@
 {
   "id": "M07",
-  "title": "M07 CI recovery and risk-based checks",
-  "base_commit": "a2574aa10e7c6103c85a56f77a7827edcffd0103",
+  "title": "M07 remaining workflow: stop, asset cleanup, export deletion, text split",
+  "base_commit": "43920a6d7897ec19cfedec5fc000968e9b254712",
   "allowed_paths": [
-    "scripts/",
-    "tests/",
-    "frontend/playwright.config.ts",
-    ".github/workflows/quality.yml",
-    ".githooks/pre-commit",
-    "quality/active-module.json",
+    "backend/",
+    "frontend/",
     "docs/",
+    "README.md",
     "项目说明.md",
-    "backend/app/worker.py",
-    "backend/tests/test_worker.py"
+    "quality/active-module.json"
   ],
   "acceptance": [
-    "CI desktop/mobile complete in isolated jobs with unchanged assertions and failure artifacts.",
-    "Timeout and interruption reap owned process trees.",
-    "Commit/push stay lightweight; risk-based review replaces mandatory global digest and all-role approval."
+    "Running cancellation reaps inference before terminal state; cleanup failure protects files.",
+    "Referenced material stays protected; permanent deletions are confirmed, journaled, recoverable and replay-safe.",
+    "Long text split previews before applying, preserves speech text and supports undo."
   ],
   "checks": [
     {
