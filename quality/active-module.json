@@ -1,36 +1,23 @@
 {
   "id": "M07",
-  "title": "M07 人物模型初版接入",
-  "base_commit": "eb6a7496198e782c29751b18ff74d492b13e9574",
+  "title": "M07 文案文件导入",
+  "base_commit": "8e0de6fcf06e684751951430ea67dc0b658fa69f",
   "allowed_paths": [
     "quality/active-module.json",
-    "backend/app/generation.py",
-    "backend/app/local_model.py",
-    "backend/app/model_runner.py",
-    "backend/app/persona_config.py",
-    "backend/app/local_qwen.py",
-    "backend/app/tasks.py",
-    "backend/app/worker.py",
-    "backend/app/versions.py",
-    "backend/tests/",
-    "scripts/qwen_bridge.py",
-    "scripts/configure_persona.py",
-    "scripts/e2e_server.py",
-    "frontend/src/App.tsx",
-    "frontend/src/TaskPanel.tsx",
-    "frontend/src/taskTypes.ts",
-    "frontend/e2e/",
+    "backend/app/main.py",
+    "backend/app/text_import.py",
+    "backend/tests/test_text_import.py",
+    "frontend/src/TextPanel.tsx",
+    "frontend/src/TextImport.tsx",
+    "frontend/e2e/text-import.spec.ts",
     "docs/快速使用指南.md",
-    "docs/模型实验与接入交接.md",
     "docs/项目方案与决策记录.md",
     "docs/优化与问题修复记录.md",
-    "docs/reviews/M07-persona.json",
-    "项目说明.md"
+    "docs/reviews/M07-text-import.json"
   ],
   "acceptance": [
-    "固定人物模型无项目参考可生成标准分段音频，失败不降级",
-    "模型/参考/参数快照固定，旧任务与导出兼容，人物资源不随项目删除",
-    "有限真实队列短样与隔离故障兼容测试，团队审查"
+    "TXT和Word docx本机提取，预览明确替换当前段；失败取消迟到不覆盖",
+    "保留其他段身份原稿与历史，不自动保存生成；限制和格式边界清晰"
   ],
   "checks": [
     {
@@ -55,5 +42,5 @@
       "timeout": 420
     }
   ],
-  "review": "docs/reviews/M07-persona.json"
+  "review": "docs/reviews/M07-text-import.json"
 }
