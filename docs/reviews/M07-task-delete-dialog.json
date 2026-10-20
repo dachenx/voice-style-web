@@ -2,7 +2,7 @@
   "module": "M07",
   "reviewer": "process_guardian",
   "verdict": "PASS",
-  "digest": "d6a8b3595178b4c10b3eef37a3e0983639b8b10f8a9296d4dfcc53d2857581f8",
+  "digest": "4cdd9a1971a9d6a025102579c28dbd33879f0cdb4214d00079ac36f8b377c732",
   "evidence": [
     "真实预览复现长列表首击确认区在视口外；修后原生模态位于665像素视口内，默认取消焦点，取消回原按钮，未确认删除真实任务。",
     "typecheck/lint/build与quick通过；首轮14通过2失败保留，修后桌面/手机16项专项通过12.0秒。",
@@ -29,7 +29,8 @@
     "evidence": [
       "Reviewed documentation-only release changes; quick and diff checks passed.",
       "Verified 24 outgoing commits and fast-forward ancestry from origin/main 42c7a02.",
-      "Scanned 264 outgoing blob versions; no checked private asset, binary, credential or private absolute-path patterns found."
+      "Scanned 264 outgoing blob versions; no checked private asset, binary, credential or private absolute-path patterns found.",
+      "process_guardian re-reviewed E129 connection failures and recovery query record; quick/diff/digest passed; no code changes."
     ],
     "limitations": [
       "Pattern scanning is not an exhaustive guarantee.",
